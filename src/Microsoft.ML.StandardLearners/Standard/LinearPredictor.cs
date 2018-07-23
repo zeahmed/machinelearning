@@ -358,7 +358,7 @@ namespace Microsoft.ML.Runtime.Learners
             return (ValueMapper<TIn, TOut>)(Delegate)del;
         }
 
-        public ValueMapper<TIn, TOut> GetEncruptedMapper<TIn, TOut>()
+        public ValueMapper<TIn, TOut> GetEncryptedMapper<TIn, TOut>()
         {
             Contracts.Check(typeof(TIn) == typeof(VBuffer<Ciphertext>));
             Contracts.Check(typeof(TOut) == typeof(Ciphertext));

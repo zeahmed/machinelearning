@@ -31,7 +31,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <DebugSymbols>true</DebugSymbols>
-    <OutputPath>..\..\bin\x64.Debug\Microsoft.ML.Tests\netcoreapp2.0\</OutputPath>
+    <OutputPath>..\..\bin\x64.Debug\EncryptionTests\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NoWarn>,1573,1591,1712</NoWarn>
@@ -75,6 +75,10 @@
     <ProjectReference Include="..\..\src\Microsoft.ML.Core\Microsoft.ML.Core.csproj">
       <Project>{a6ca6cc6-5d7c-4d7f-a0f5-35e14b383b0a}</Project>
       <Name>Microsoft.ML.Core</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\Microsoft.ML.CpuMath\Microsoft.ML.CpuMath.csproj">
+      <Project>{46f2f967-c23f-4076-858d-33f7da9bd2da}</Project>
+      <Name>Microsoft.ML.CpuMath</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\src\Microsoft.ML.Data\Microsoft.ML.Data.csproj">
       <Project>{ad92d96b-0e96-4f22-8dce-892e13b1f282}</Project>

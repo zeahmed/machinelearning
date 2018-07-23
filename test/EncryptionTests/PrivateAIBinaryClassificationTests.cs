@@ -12,42 +12,71 @@ using Xunit;
 using Microsoft.Research.SEAL;
 using Microsoft.ML.Runtime.Training;
 using Microsoft.ML.Runtime.Internal.Calibration;
+using System.Threading;
+using System.Globalization;
+using Xunit.Abstractions;
 
 namespace EncryptionTests
 {
-    public class PrivateAIBinaryClassificationTests
+    public class Encryption
     {
-        public class Encryption
+        public EncryptionParameters Params { get; }
+        public Evaluator Evaluator { get; }
+        public Encryptor Encryptor { get; }
+        public Decryptor Decryptor { get; }
+        public FractionalEncoder Encoder { get; }
+
+        public Encryption()
         {
-            public EncryptionParameters Params { get; }
-            public Evaluator Evaluator { get; }
-            public Encryptor Encryptor { get; }
-            public Decryptor Decryptor { get; }
-            public FractionalEncoder Encoder { get; }
+            Params = new EncryptionParameters();
+            Params.PolyModulus = "1x^2048 + 1";
+            Params.CoeffModulus = DefaultParams.CoeffModulus128(2048);
+            Params.PlainModulus = 1 << 8;
 
-            public Encryption()
-            {
-                Params = new EncryptionParameters();
-                Params.PolyModulus = "1x^2048 + 1";
-                Params.CoeffModulus = DefaultParams.CoeffModulus128(2048);
-                Params.PlainModulus = 1 << 8;
+            var context = new SEALContext(Params);
 
-                var context = new SEALContext(Params);
+            var keygen = new KeyGenerator(context);
+            var publicKey = keygen.PublicKey;
+            var secretKey = keygen.SecretKey;
 
-                var keygen = new KeyGenerator(context);
-                var publicKey = keygen.PublicKey;
-                var secretKey = keygen.SecretKey;
+            Encryptor = new Encryptor(context, publicKey);
+            Evaluator = new Evaluator(context);
+            Decryptor = new Decryptor(context, secretKey);
 
-                Encryptor = new Encryptor(context, publicKey);
-                Evaluator = new Evaluator(context);
-                Decryptor = new Decryptor(context, secretKey);
+            Encoder = new FractionalEncoder(context.PlainModulus, context.PolyModulus, 64, 32, 3);
+        }
+    }
 
-                Encoder = new FractionalEncoder(context.PlainModulus, context.PolyModulus, 64, 32, 3);
-            }
+    public partial class PrivateAITests
+    {
+        private readonly string _dataRoot;
+
+        public PrivateAITests(ITestOutputHelper output)
+        {
+            //This locale is currently set for tests only so that the produced output
+            //files can be compared on systems with other locales to give set of known
+            //correct results that are on en-US locale.
+            Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
+
+            var currentAssemblyLocation = new FileInfo(typeof(PrivateAITests).Assembly.Location);
+            var _rootDir = currentAssemblyLocation.Directory.Parent.Parent.Parent.Parent.FullName;
+            var _outDir = Path.Combine(currentAssemblyLocation.Directory.FullName, "TestOutput");
+            Directory.CreateDirectory(_outDir);
+            _dataRoot = Path.Combine(_rootDir, "test", "data");
+            Output = output;
+        }
+
+        protected ITestOutputHelper Output { get; }
+
+        protected string GetDataPath(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return null;
+            return Path.GetFullPath(Path.Combine(_dataRoot, name));
         }
 
         // Create Encryption object based on SEAL parameters
-        public static Encryption EncryContext = new Encryption();
+        public Encryption EncryContext = new Encryption();
 
         [Fact]
         public void EncryptedScorerBinaryClassificationTest()
@@ -58,7 +87,7 @@ namespace EncryptionTests
                 // to test our model on.
                 // Have to remove the calibirator because Sigmoid and other complex functions are not supported by SEAL
                 IDataView testData = null;
-                LinearBinaryPredictor pred = TrainModel(env, ref testData);
+                LinearBinaryPredictor pred = TrainBinaryModel(env, ref testData);
 
                 // Send the encryption related parameter to model so that model can be encrypted.
                 // Only encryption related objects are passed to model. Decryption part is still on client side to maintain the privacy.
@@ -74,7 +103,7 @@ namespace EncryptionTests
                 // We will use these mappers to score the feature vector before and after encryption.
                 // Since non of ML.Net transforms are encryption aware, feature vector is featurized here.
                 // Featurized vector is then ecrypted and passed on to model for scoring.
-                var valueMapperEncrypted = pred.GetEncruptedMapper<VBuffer<Ciphertext>, Ciphertext>();
+                var valueMapperEncrypted = pred.GetEncryptedMapper<VBuffer<Ciphertext>, Ciphertext>();
                 var valueMapper = pred.GetMapper<VBuffer<Single>, Single>();
 
 
@@ -83,26 +112,38 @@ namespace EncryptionTests
                                                         , CursOpt.Label | CursOpt.Features);
                 using (var cursor = cursorFactory.Create())
                 {
+                    double executionTime = 0;
+                    double encryptedExecutionTime = 0;
                     // Iterate over the data and match encrypted and non-encrypted score.
                     while (cursor.MoveNext())
                     {
                         // Predict on Encrypted Data
                         var vBufferencryptedFeatures = EncryptData(ref cursor.Features);
                         Ciphertext encryptedResult = new Ciphertext();
+                        var watch = System.Diagnostics.Stopwatch.StartNew();
                         valueMapperEncrypted(ref vBufferencryptedFeatures, ref encryptedResult);
 
                         // Decode the encrypted prediction obtrained from the model.
                         var plainResult = new Plaintext();
                         EncryContext.Decryptor.Decrypt(encryptedResult, plainResult);
                         var predictionEncrypted = (float)EncryContext.Encoder.Decode(plainResult);
+                        encryptedExecutionTime += watch.ElapsedTicks / 10000.0;
+                        watch.Stop();
+                        
 
                         // Predict on non-ecrypted data.
                         float prediction = 0;
+                        watch = System.Diagnostics.Stopwatch.StartNew();
                         valueMapper(ref cursor.Features, ref prediction);
+                        executionTime += watch.ElapsedTicks / 10000.0;
+                        watch.Stop();
 
                         // Compare the results to some tolerance.
                         Assert.True(Math.Abs(predictionEncrypted - prediction) <= (1e-05 + 1e-08 * Math.Abs(prediction)));
                     }
+
+                    Output.WriteLine("Prediction Time : {0}ms", executionTime);
+                    Output.WriteLine("Prediction Time (Encrypted) : {0}ms", encryptedExecutionTime);
                 }
             }
         }
@@ -118,7 +159,7 @@ namespace EncryptionTests
             }
             return new VBuffer<Ciphertext>(features.Length, features.Count, encryptedFeatures, features.Indices);
         }
-        private LinearBinaryPredictor TrainModel(TlcEnvironment env, ref IDataView testData)
+        private LinearBinaryPredictor TrainBinaryModel(TlcEnvironment env, ref IDataView testData)
         {
             string dataPath = @"E:\TLC_git\machinelearning\test\data\breast-cancer.txt";
             // Pipeline
@@ -155,11 +196,11 @@ namespace EncryptionTests
             var pred = (LinearBinaryPredictor)trainer.Train(trainRoles).SubPredictor;
 
             // Get test data. We are testing on the same file used for training.
-            testData = GetTestPipeline(env, trans, pred);
+            testData = GetTestPipelineBinary(env, trans, pred);
             return pred;
         }
 
-        private IDataView GetTestPipeline(IHostEnvironment env, IDataView transforms, IPredictor pred)
+        private IDataView GetTestPipelineBinary(IHostEnvironment env, IDataView transforms, IPredictor pred)
         {
             string testDataPath = @"E:\TLC_git\machinelearning\test\data\breast-cancer.txt";
             using (var ch = env.Start("Saving model"))

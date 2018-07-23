@@ -3,9 +3,6 @@
     <TargetFramework>netcoreapp2.0</TargetFramework>
     <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <OutputPath>E:\TLC_git\machinelearning\bin/x64.Debug\Microsoft.ML.Tests\netcoreapp2.0\</OutputPath>
-  </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Microsoft.ML.Ensemble\Microsoft.ML.Ensemble.csproj" />
@@ -25,11 +22,5 @@
     <NativeAssemblyReference Include="CpuMathNative" />
     <NativeAssemblyReference Include="FastTreeNative" />
     <NativeAssemblyReference Include="LdaNative" />
-  </ItemGroup>
-  
-  <ItemGroup>
-    <Reference Include="SEALNET">
-      <HintPath>..\..\..\..\SEAL\SEAL\bin\x64\Release\SEALNET.dll</HintPath>
-    </Reference>
   </ItemGroup>
 </Project>
