@@ -20,7 +20,6 @@ namespace EncryptionTests
 {
     public class Encryption
     {
-        public EncryptionParameters Params { get; }
         public Evaluator Evaluator { get; }
         public Encryptor Encryptor { get; }
         public Decryptor Decryptor { get; }
@@ -34,13 +33,7 @@ namespace EncryptionTests
 
         public Encryption()
         {
-            Params = new EncryptionParameters();
-            Params.PolyModulus = "1x^2048 + 1";
-            Params.CoeffModulus = DefaultParams.CoeffModulus128(2048);
-            Params.PlainModulus = 1 << 8;
-
-            var context = new SEALContext(Params);
-
+            var context = CreateSEALContext();
             var keygen = new KeyGenerator(context);
             PublicKey = keygen.PublicKey;
             SecretKey = keygen.SecretKey;
@@ -54,12 +47,7 @@ namespace EncryptionTests
 
         public Encryption(PublicKey publicKey, SecretKey secretKey)
         {
-            Params = new EncryptionParameters();
-            Params.PolyModulus = "1x^2048 + 1";
-            Params.CoeffModulus = DefaultParams.CoeffModulus128(2048);
-            Params.PlainModulus = 1 << 8;
-
-            var context = new SEALContext(Params);
+            var context = CreateSEALContext();
             PublicKey = publicKey;
             SecretKey = secretKey;
 
@@ -68,6 +56,16 @@ namespace EncryptionTests
             Decryptor = new Decryptor(context, secretKey);
 
             Encoder = new FractionalEncoder(context.PlainModulus, context.PolyModulus, 64, 32, 3);
+        }
+
+        private static SEALContext CreateSEALContext()
+        {
+            EncryptionParameters encryptionParams = new EncryptionParameters();
+            encryptionParams.PolyModulus = "1x^2048 + 1";
+            encryptionParams.CoeffModulus = DefaultParams.CoeffModulus128(2048);
+            encryptionParams.PlainModulus = 1 << 8;
+
+            return new SEALContext(encryptionParams);
         }
     }
 
@@ -118,7 +116,7 @@ namespace EncryptionTests
 
         private void RunTest(TlcEnvironment env, string dataPath, string modelFile)
         {
-            // Recreate the EncryptionContext object with same keys to make sure that encryption works regarless.
+            // Recreate the EncryptionContext object with same keys to make sure that encryption works regardless.
             EncryContext = new Encryption(EncryContext.PublicKey, EncryContext.SecretKey);
 
             // Load the model
@@ -184,7 +182,7 @@ namespace EncryptionTests
 
             for (int i = 0; i < features.Values.Length; i++)
             {
-                encryptedFeatures[i] = new Ciphertext(EncryContext.Params);
+                encryptedFeatures[i] = new Ciphertext();
                 EncryContext.Encryptor.Encrypt(EncryContext.Encoder.Encode(features.Values[i]), encryptedFeatures[i]);
             }
             return new VBuffer<Ciphertext>(features.Length, features.Count, encryptedFeatures, features.Indices);
