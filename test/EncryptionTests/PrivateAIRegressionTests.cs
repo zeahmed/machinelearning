@@ -28,16 +28,6 @@ namespace EncryptionTests
                 IDataView testData = null;
                 LinearRegressionPredictor pred = TrainRegressionModel(env, ref testData);
 
-                // Send the encryption related parameter to model so that model can be encrypted.
-                // Only encryption related objects are passed to model. Decryption part is still on client side to maintain the privacy.
-                pred.EncryptionContext = new EncryptionContext();
-                pred.EncryptionContext.Encoder = EncryContext.Encoder;
-                pred.EncryptionContext.Encryptor = EncryContext.Encryptor;
-                pred.EncryptionContext.Evaluator = EncryContext.Evaluator;
-
-                // Now encrypt the model
-                pred.EncryptModel();
-
                 // Get the valuemapper methods. Both for normal and encrypted case.
                 // We will use these mappers to score the feature vector before and after encryption.
                 // Since non of ML.Net transforms are encryption aware, feature vector is featurized here.
@@ -53,9 +43,11 @@ namespace EncryptionTests
                 {
                     double executionTime = 0;
                     double encryptedExecutionTime = 0;
+                    int sampleCount = 0;
                     // Iterate over the data and match encrypted and non-encrypted score.
                     while (cursor.MoveNext())
                     {
+                        sampleCount++;
                         // Predict on Encrypted Data
                         var vBufferencryptedFeatures = EncryptData(ref cursor.Features);
                         Ciphertext encryptedResult = new Ciphertext();
@@ -81,8 +73,8 @@ namespace EncryptionTests
                         Assert.True(Math.Abs(predictionEncrypted - prediction) <= (1e-05 + 1e-08 * Math.Abs(prediction)));
                     }
 
-                    Output.WriteLine("Prediction Time : {0}ms", executionTime);
-                    Output.WriteLine("Prediction Time (Encrypted) : {0}ms", encryptedExecutionTime);
+                    Output.WriteLine("Avg. Prediction Time : {0}ms", executionTime / sampleCount);
+                    Output.WriteLine("Avg. Prediction Time (Encrypted) : {0}ms", encryptedExecutionTime / sampleCount);
                 }
             }
         }
@@ -120,6 +112,20 @@ namespace EncryptionTests
             var cached = new CacheDataView(env, trans, prefetch: null);
             var trainRoles = new RoleMappedData(cached, label: "Label", feature: "Features");
             var pred = (LinearRegressionPredictor)trainer.Train(trainRoles);
+
+            // Set the Evaluator that will be used for computing
+            pred.Evaluator = EncryContext.Evaluator;
+
+            // Now encrypt the model
+            pred.EncryptModel(EncryContext.Encryptor, EncryContext.Encoder);
+
+            var modelFile = @"\\ct01\users\zeahmed\ML.NET\build\Housing.zip";
+            // Save model
+            SaveModel(env, pred, trainRoles, modelFile);
+            pred = (LinearRegressionPredictor)LoadModel(env, modelFile);
+
+            // Set the Evaluator after the model is loaded that will be used for computing
+            pred.Evaluator = EncryContext.Evaluator;
 
             // Get test data. We are testing on the same file used for training.
             testData = GetTestPipelineRegression(env, trans, pred);

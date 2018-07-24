@@ -60,7 +60,7 @@ namespace Microsoft.ML.Runtime.Learners
         ISingleCanSaveOnnx
     {
         protected readonly VBuffer<Float> Weight;
-        protected VBuffer<Plaintext> EncodedWeight;
+        protected VBuffer<Ciphertext> EncodedWeight;
 
         // _weightsDense is not persisted and is used for performance when the input instance is sparse.
         private VBuffer<Float> _weightsDense;
@@ -103,7 +103,7 @@ namespace Microsoft.ML.Runtime.Learners
 
         /// <summary> The predictor's bias term.</summary>
         public Float Bias { get; protected set; }
-        public Plaintext EncodedBias { get; protected set; }
+        public Ciphertext EncryptedBias { get; protected set; }
 
         public ColumnType InputType { get; }
 
@@ -113,7 +113,7 @@ namespace Microsoft.ML.Runtime.Learners
 
         public bool CanSaveOnnx => true;
 
-        public EncryptionContext EncryptionContext;
+        public Evaluator Evaluator { get; set; }
         /// <summary>
         /// Constructs a new linear predictor.
         /// </summary>
@@ -138,18 +138,20 @@ namespace Microsoft.ML.Runtime.Learners
                 _weightsDenseLock = new object();
         }
 
-        public void EncryptModel()
+        public void EncryptModel(Encryptor encryptor, FractionalEncoder encoder)
         {
             // Weights are not actually encrypted (though can be done) for sake of performance.
             // They are simply encoded into SEAL Plaintext format for evaluation in encrypted space.
             // SEAL can multiply an encrypted number with non-encrypted number.
-            var encryptedWeight = new List<Plaintext>();
+            var encryptedWeight = new Ciphertext[Weight.Values.Length];
             for (int i = 0; i < Weight.Values.Length; i++)
             {
-                encryptedWeight.Add(EncryptionContext.Encoder.Encode(Weight.Values[i]));
+                encryptedWeight[i] = new Ciphertext();
+                encryptor.Encrypt(encoder.Encode(Weight.Values[i]), encryptedWeight[i]);
             }
-            EncodedBias = EncryptionContext.Encoder.Encode(Bias);
-            EncodedWeight = new VBuffer<Plaintext>(Weight.Length, Weight.Count, encryptedWeight.ToArray(), Weight.Indices);
+            EncryptedBias = new Ciphertext();
+            encryptor.Encrypt(encoder.Encode(Bias), EncryptedBias);
+            EncodedWeight = new VBuffer<Ciphertext>(Weight.Length, Weight.Count, encryptedWeight.ToArray(), Weight.Indices);
         }
 
         public void EncryptParameters()
@@ -211,6 +213,16 @@ namespace Microsoft.ML.Runtime.Learners
                 _weightsDense = Weight;
             else
                 _weightsDenseLock = new object();
+
+            EncryptedBias = new Ciphertext();
+            EncryptedBias.Load(ctx.Reader.BaseStream);
+            var encryptedWeight = new Ciphertext[Weight.Values.Length];
+            for (int i = 0; i < Weight.Values.Length; i++)
+            {
+                encryptedWeight[i] = new Ciphertext();
+                encryptedWeight[i].Load(ctx.Reader.BaseStream);
+            }
+            EncodedWeight = new VBuffer<Ciphertext>(Weight.Length, Weight.Count, encryptedWeight, Weight.Indices);
         }
 
         protected override void SaveCore(ModelSaveContext ctx)
@@ -231,6 +243,15 @@ namespace Microsoft.ML.Runtime.Learners
             ctx.Writer.Write(Weight.Length);
             ctx.Writer.WriteIntArray(Weight.Indices, Weight.IsDense ? 0 : Weight.Count);
             ctx.Writer.WriteFloatArray(Weight.Values, Weight.Count);
+
+            if (EncodedWeight.Length > 0)
+            {
+                EncryptedBias.Save(ctx.Writer.BaseStream);
+                foreach (Ciphertext cf in EncodedWeight.Values)
+                {
+                    cf.Save(ctx.Writer.BaseStream);
+                }
+            }
         }
 
         public JToken SaveAsPfa(BoundPfaContext ctx, JToken input)
@@ -278,27 +299,22 @@ namespace Microsoft.ML.Runtime.Learners
         // Generate the score from the given values, assuming they have already been normalized.
         protected virtual Ciphertext ScoreEncrypted(ref VBuffer<Ciphertext> src)
         {
-            if (!src.IsDense)
-            {
-                EnsureWeightsDense();
-            }
-
             // Compute dot product between weights (Non-encrypted) and feature vector (Encrypted).
             // Need to use addition and multiplication constructs defined by SEAL.
             // Dont know if we can use normal addition and multiplication operators directly.
+            var encryptedResult = new Ciphertext[src.Values.Length];
             for (int i = 0; i < src.Values.Length; i++)
             {
-                EncryptionContext.Evaluator.MultiplyPlain(src.Values[i], EncodedWeight.Values[i]);
+                encryptedResult[i] = new Ciphertext();
+                Evaluator.Multiply(src.Values[i], EncodedWeight.Values[i], encryptedResult[i]);
             }
-            var encryptedResult = new Ciphertext();
-            EncryptionContext.Evaluator.AddMany(src.Values.ToList(), encryptedResult);
+            var encryptedCombination = new Ciphertext();
+            Evaluator.AddMany(encryptedResult.ToList(), encryptedCombination);
 
             // Add bias. SEAL can only add encrypted number unlike SEAL multiply.
-            var encryptedBaised = new Ciphertext();
-            EncryptionContext.Encryptor.Encrypt(EncodedBias, encryptedBaised);
-            EncryptionContext.Evaluator.Add(encryptedResult, encryptedBaised);
+            Evaluator.Add(encryptedCombination, EncryptedBias);
 
-            return encryptedResult;
+            return encryptedCombination;
         }
 
         // Generate the score from the given values, assuming they have already been normalized.
@@ -334,7 +350,7 @@ namespace Microsoft.ML.Runtime.Learners
                     if (_weightsDense.Length == 0 && Weight.Length > 0)
                     {
                         Weight.CopyToDense(ref _weightsDense);
-                        VBuffer<Plaintext> encodedWeightsDense = new VBuffer<Plaintext>();
+                        VBuffer<Ciphertext> encodedWeightsDense = new VBuffer<Ciphertext>();
                         EncodedWeight.CopyToDense(ref encodedWeightsDense);
                         EncodedWeight = encodedWeightsDense;
                     }

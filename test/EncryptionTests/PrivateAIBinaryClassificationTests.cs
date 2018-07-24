@@ -89,16 +89,6 @@ namespace EncryptionTests
                 IDataView testData = null;
                 LinearBinaryPredictor pred = TrainBinaryModel(env, ref testData);
 
-                // Send the encryption related parameter to model so that model can be encrypted.
-                // Only encryption related objects are passed to model. Decryption part is still on client side to maintain the privacy.
-                pred.EncryptionContext = new EncryptionContext();
-                pred.EncryptionContext.Encoder = EncryContext.Encoder;
-                pred.EncryptionContext.Encryptor = EncryContext.Encryptor;
-                pred.EncryptionContext.Evaluator = EncryContext.Evaluator;
-
-                // Now encrypt the model
-                pred.EncryptModel();
-
                 // Get the valuemapper methods. Both for normal and encrypted case.
                 // We will use these mappers to score the feature vector before and after encryption.
                 // Since non of ML.Net transforms are encryption aware, feature vector is featurized here.
@@ -114,9 +104,11 @@ namespace EncryptionTests
                 {
                     double executionTime = 0;
                     double encryptedExecutionTime = 0;
+                    int sampleCount = 0;
                     // Iterate over the data and match encrypted and non-encrypted score.
                     while (cursor.MoveNext())
                     {
+                        sampleCount++;
                         // Predict on Encrypted Data
                         var vBufferencryptedFeatures = EncryptData(ref cursor.Features);
                         Ciphertext encryptedResult = new Ciphertext();
@@ -139,11 +131,11 @@ namespace EncryptionTests
                         watch.Stop();
 
                         // Compare the results to some tolerance.
-                        Assert.True(Math.Abs(predictionEncrypted - prediction) <= (1e-05 + 1e-08 * Math.Abs(prediction)));
+                        Assert.True(Math.Abs(predictionEncrypted - prediction) <= (1e-03 + 1e-08 * Math.Abs(prediction)));
                     }
 
-                    Output.WriteLine("Prediction Time : {0}ms", executionTime);
-                    Output.WriteLine("Prediction Time (Encrypted) : {0}ms", encryptedExecutionTime);
+                    Output.WriteLine("Avg. Prediction Time : {0}ms", executionTime / sampleCount);
+                    Output.WriteLine("Avg. Prediction Time (Encrypted) : {0}ms", encryptedExecutionTime / sampleCount);
                 }
             }
         }
@@ -195,6 +187,20 @@ namespace EncryptionTests
             // Have to remove the calibirator because Sigmoid and other complex functions are not supported by SEAL
             var pred = (LinearBinaryPredictor)trainer.Train(trainRoles).SubPredictor;
 
+            // Set the Evaluator that will be used for computing
+            pred.Evaluator = EncryContext.Evaluator;
+
+            // Now encrypt the model
+            pred.EncryptModel(EncryContext.Encryptor, EncryContext.Encoder);
+
+            var modelFile = @"\\ct01\users\zeahmed\ML.NET\build\BreastCancer.zip";
+            // Save model
+            SaveModel(env, pred, trainRoles, modelFile);
+            pred = (LinearBinaryPredictor)LoadModel(env, modelFile);
+
+            // Set the Evaluator after the model is loaded that will be used for computing
+            pred.Evaluator = EncryContext.Evaluator;
+
             // Get test data. We are testing on the same file used for training.
             testData = GetTestPipelineBinary(env, trans, pred);
             return pred;
@@ -215,6 +221,25 @@ namespace EncryptionTests
                 {
                     return ModelFileUtils.LoadPipeline(env, rep, new MultiFileSource(testDataPath), true);
                 }
+            }
+        }
+
+        private void SaveModel(IHostEnvironment env, IPredictor pred, RoleMappedData trainRoles, string modelFile)
+        {
+            using (var ch = env.Start("Saving model"))
+            using (var filestream = new FileStream(modelFile, FileMode.Create))
+            {
+                // Model cannot be saved with CacheDataView
+                TrainUtils.SaveModel(env, ch, filestream, pred, trainRoles);
+            }
+        }
+
+        private IPredictor LoadModel(IHostEnvironment env, string modelFile)
+        {
+            using (var filestream = new FileStream(modelFile, FileMode.Open))
+            {
+                // Model cannot be saved with CacheDataView
+                return ModelFileUtils.LoadPredictorOrNull(env, filestream);
             }
         }
     }
