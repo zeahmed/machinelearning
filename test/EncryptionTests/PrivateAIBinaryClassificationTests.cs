@@ -26,6 +26,12 @@ namespace EncryptionTests
         public Decryptor Decryptor { get; }
         public FractionalEncoder Encoder { get; }
 
+        // These keys should **NOT** be saved here
+        // Its just for demo purpose
+        public PublicKey PublicKey { get;  }
+
+        public SecretKey SecretKey { get; }
+
         public Encryption()
         {
             Params = new EncryptionParameters();
@@ -36,8 +42,26 @@ namespace EncryptionTests
             var context = new SEALContext(Params);
 
             var keygen = new KeyGenerator(context);
-            var publicKey = keygen.PublicKey;
-            var secretKey = keygen.SecretKey;
+            PublicKey = keygen.PublicKey;
+            SecretKey = keygen.SecretKey;
+
+            Encryptor = new Encryptor(context, PublicKey);
+            Evaluator = new Evaluator(context);
+            Decryptor = new Decryptor(context, SecretKey);
+
+            Encoder = new FractionalEncoder(context.PlainModulus, context.PolyModulus, 64, 32, 3);
+        }
+
+        public Encryption(PublicKey publicKey, SecretKey secretKey)
+        {
+            Params = new EncryptionParameters();
+            Params.PolyModulus = "1x^2048 + 1";
+            Params.CoeffModulus = DefaultParams.CoeffModulus128(2048);
+            Params.PlainModulus = 1 << 8;
+
+            var context = new SEALContext(Params);
+            PublicKey = publicKey;
+            SecretKey = secretKey;
 
             Encryptor = new Encryptor(context, publicKey);
             Evaluator = new Evaluator(context);
@@ -94,6 +118,9 @@ namespace EncryptionTests
 
         private void RunTest(TlcEnvironment env, string dataPath, string modelFile)
         {
+            // Recreate the EncryptionContext object with same keys to make sure that encryption works regarless.
+            EncryContext = new Encryption(EncryContext.PublicKey, EncryContext.SecretKey);
+
             // Load the model
             // Set the Evaluator after the model is loaded that will be used for computing
             // Get test data. We are testing on the same file used for training.
