@@ -81,62 +81,73 @@ namespace EncryptionTests
         [Fact]
         public void EncryptedScorerBinaryClassificationTest()
         {
+            string dataPath = @"E:\TLC_git\machinelearning\test\data\breast-cancer.txt";
+            var modelFile = @"\\ct01\users\zeahmed\ML.NET\build\BreastCancer.zip";
             using (var env = new TlcEnvironment(seed: 1, conc: 1))
             {
-                // Train the model, get the predictor and optionally get the test IDataView
-                // to test our model on.
-                // Have to remove the calibirator because Sigmoid and other complex functions are not supported by SEAL
-                IDataView testData = null;
-                LinearBinaryPredictor pred = TrainBinaryModel(env, ref testData);
+                // Train the model and save it in modelFile
+                TrainBinaryModel(env, dataPath, modelFile);
 
-                // Get the valuemapper methods. Both for normal and encrypted case.
-                // We will use these mappers to score the feature vector before and after encryption.
-                // Since non of ML.Net transforms are encryption aware, feature vector is featurized here.
-                // Featurized vector is then ecrypted and passed on to model for scoring.
-                var valueMapperEncrypted = pred.GetEncryptedMapper<VBuffer<Ciphertext>, Ciphertext>();
-                var valueMapper = pred.GetMapper<VBuffer<Single>, Single>();
+                RunTest(env, dataPath, modelFile);
+            }
+        }
+
+        private void RunTest(TlcEnvironment env, string dataPath, string modelFile)
+        {
+            // Load the model
+            // Set the Evaluator after the model is loaded that will be used for computing
+            // Get test data. We are testing on the same file used for training.
+            LinearPredictor pred = (LinearPredictor)LoadModel(env, modelFile);
+            pred.Evaluator = EncryContext.Evaluator;
+            IDataView testData = GetTestPipeline(env, dataPath, modelFile);
+
+            // Get the valuemapper methods. Both for normal and encrypted case.
+            // We will use these mappers to score the feature vector before and after encryption.
+            // Since non of ML.Net transforms are encryption aware, feature vector is featurized here.
+            // Featurized vector is then ecrypted and passed on to model for scoring.
+            var valueMapperEncrypted = pred.GetEncryptedMapper<VBuffer<Ciphertext>, Ciphertext>();
+            var valueMapper = pred.GetMapper<VBuffer<Single>, Single>();
 
 
-                // Prepare for iteration over the data pipeline.
-                var cursorFactory = new FloatLabelCursor.Factory(new RoleMappedData(testData, DefaultColumnNames.Label, DefaultColumnNames.Features)
-                                                        , CursOpt.Label | CursOpt.Features);
-                using (var cursor = cursorFactory.Create())
+            // Prepare for iteration over the data pipeline.
+            var cursorFactory = new FloatLabelCursor.Factory(new RoleMappedData(testData, DefaultColumnNames.Label, DefaultColumnNames.Features)
+                                                    , CursOpt.Label | CursOpt.Features);
+            using (var cursor = cursorFactory.Create())
+            {
+                double executionTime = 0;
+                double encryptedExecutionTime = 0;
+                int sampleCount = 0;
+                // Iterate over the data and match encrypted and non-encrypted score.
+                while (cursor.MoveNext())
                 {
-                    double executionTime = 0;
-                    double encryptedExecutionTime = 0;
-                    int sampleCount = 0;
-                    // Iterate over the data and match encrypted and non-encrypted score.
-                    while (cursor.MoveNext())
-                    {
-                        sampleCount++;
-                        // Predict on Encrypted Data
-                        var vBufferencryptedFeatures = EncryptData(ref cursor.Features);
-                        Ciphertext encryptedResult = new Ciphertext();
-                        var watch = System.Diagnostics.Stopwatch.StartNew();
-                        valueMapperEncrypted(ref vBufferencryptedFeatures, ref encryptedResult);
+                    sampleCount++;
+                    // Predict on Encrypted Data
+                    var vBufferencryptedFeatures = EncryptData(ref cursor.Features);
+                    Ciphertext encryptedResult = new Ciphertext();
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    valueMapperEncrypted(ref vBufferencryptedFeatures, ref encryptedResult);
 
-                        // Decode the encrypted prediction obtrained from the model.
-                        var plainResult = new Plaintext();
-                        EncryContext.Decryptor.Decrypt(encryptedResult, plainResult);
-                        var predictionEncrypted = (float)EncryContext.Encoder.Decode(plainResult);
-                        encryptedExecutionTime += watch.ElapsedTicks / 10000.0;
-                        watch.Stop();
-                        
+                    // Decode the encrypted prediction obtrained from the model.
+                    var plainResult = new Plaintext();
+                    EncryContext.Decryptor.Decrypt(encryptedResult, plainResult);
+                    var predictionEncrypted = (float)EncryContext.Encoder.Decode(plainResult);
+                    encryptedExecutionTime += watch.ElapsedTicks / 10000.0;
+                    watch.Stop();
 
-                        // Predict on non-ecrypted data.
-                        float prediction = 0;
-                        watch = System.Diagnostics.Stopwatch.StartNew();
-                        valueMapper(ref cursor.Features, ref prediction);
-                        executionTime += watch.ElapsedTicks / 10000.0;
-                        watch.Stop();
 
-                        // Compare the results to some tolerance.
-                        Assert.True(Math.Abs(predictionEncrypted - prediction) <= (1e-03 + 1e-08 * Math.Abs(prediction)));
-                    }
+                    // Predict on non-ecrypted data.
+                    float prediction = 0;
+                    watch = System.Diagnostics.Stopwatch.StartNew();
+                    valueMapper(ref cursor.Features, ref prediction);
+                    executionTime += watch.ElapsedTicks / 10000.0;
+                    watch.Stop();
 
-                    Output.WriteLine("Avg. Prediction Time : {0}ms", executionTime / sampleCount);
-                    Output.WriteLine("Avg. Prediction Time (Encrypted) : {0}ms", encryptedExecutionTime / sampleCount);
+                    // Compare the results to some tolerance.
+                    Assert.True(Math.Abs(predictionEncrypted - prediction) <= (1e-03 + 1e-08 * Math.Abs(prediction)));
                 }
+
+                Output.WriteLine("Avg. Prediction Time : {0}ms", executionTime / sampleCount);
+                Output.WriteLine("Avg. Prediction Time (Encrypted) : {0}ms", encryptedExecutionTime / sampleCount);
             }
         }
 
@@ -151,9 +162,8 @@ namespace EncryptionTests
             }
             return new VBuffer<Ciphertext>(features.Length, features.Count, encryptedFeatures, features.Indices);
         }
-        private LinearBinaryPredictor TrainBinaryModel(TlcEnvironment env, ref IDataView testData)
+        private void TrainBinaryModel(TlcEnvironment env, string dataPath, string modelFile)
         {
-            string dataPath = @"E:\TLC_git\machinelearning\test\data\breast-cancer.txt";
             // Pipeline
             var loader = new TextLoader(env,
                 new TextLoader.Arguments()
@@ -193,34 +203,16 @@ namespace EncryptionTests
             // Now encrypt the model
             pred.EncryptModel(EncryContext.Encryptor, EncryContext.Encoder);
 
-            var modelFile = @"\\ct01\users\zeahmed\ML.NET\build\BreastCancer.zip";
             // Save model
+            trainRoles = new RoleMappedData(trans, label: "Label", feature: "Features");
             SaveModel(env, pred, trainRoles, modelFile);
-            pred = (LinearBinaryPredictor)LoadModel(env, modelFile);
-
-            // Set the Evaluator after the model is loaded that will be used for computing
-            pred.Evaluator = EncryContext.Evaluator;
-
-            // Get test data. We are testing on the same file used for training.
-            testData = GetTestPipelineBinary(env, trans, pred);
-            return pred;
         }
 
-        private IDataView GetTestPipelineBinary(IHostEnvironment env, IDataView transforms, IPredictor pred)
+        private IDataView GetTestPipeline(IHostEnvironment env, string testDataPath, string modelFile)
         {
-            string testDataPath = @"E:\TLC_git\machinelearning\test\data\breast-cancer.txt";
-            using (var ch = env.Start("Saving model"))
-            using (var memoryStream = new MemoryStream())
+            using (var stream = new FileStream(modelFile, FileMode.Open))
             {
-                var trainRoles = new RoleMappedData(transforms, label: "Label", feature: "Features");
-
-                // Model cannot be saved with CacheDataView
-                TrainUtils.SaveModel(env, ch, memoryStream, pred, trainRoles);
-                memoryStream.Position = 0;
-                using (var rep = RepositoryReader.Open(memoryStream, ch))
-                {
-                    return ModelFileUtils.LoadPipeline(env, rep, new MultiFileSource(testDataPath), true);
-                }
+                return ModelFileUtils.LoadPipeline(env, stream, new MultiFileSource(testDataPath), true);
             }
         }
 
