@@ -4,6 +4,7 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <IncludeInPackage>Microsoft.ML</IncludeInPackage>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,6 +12,12 @@
     <ProjectReference Include="..\Microsoft.ML.CpuMath\Microsoft.ML.CpuMath.csproj" />
     <ProjectReference Include="..\Microsoft.ML.Data\Microsoft.ML.Data.csproj" />
     <ProjectReference Include="..\Microsoft.ML\Microsoft.ML.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="SEALNET">
+      <HintPath>..\..\..\..\SEAL\SEAL\bin\x64\Release\SEALNET.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>

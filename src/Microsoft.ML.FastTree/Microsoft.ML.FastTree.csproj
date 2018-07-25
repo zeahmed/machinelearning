@@ -6,6 +6,7 @@
 	<DefineConstants>$(DefineConstants);USE_FASTTREENATIVE;NO_STORE;CORECLR</DefineConstants>
 	<EnableDefaultCompileItems>False</EnableDefaultCompileItems>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>

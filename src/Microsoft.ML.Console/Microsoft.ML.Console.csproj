@@ -6,7 +6,8 @@
     <TargetFramework>netcoreapp2.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <AssemblyName>MML</AssemblyName> 
-    <StartupObject>Microsoft.ML.Runtime.Tools.Console.Console</StartupObject>
+    <StartupObject>Microsoft.ML.Runtime.Tools.Console.Console</StartupObject> 
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>

@@ -132,7 +132,8 @@
           "Configuration": "default",
           "MsBuildLogging": "default",
           "MsBuildWarning": "default",
-          "MsBuildError": "default"
+          "MsBuildError": "default",
+          "TargetArchitecture": "default"
         }
       }
     }

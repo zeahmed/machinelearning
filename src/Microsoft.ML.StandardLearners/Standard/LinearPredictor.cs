@@ -20,6 +20,7 @@ using Microsoft.ML.Runtime.Model.Onnx;
 using Microsoft.ML.Runtime.Model.Pfa;
 using Microsoft.ML.Runtime.Numeric;
 using Newtonsoft.Json.Linq;
+using Microsoft.Research.SEAL;
 
 // This is for deserialization from a model repository.
 [assembly: LoadableClass(typeof(IPredictorProducing<Float>), typeof(LinearBinaryPredictor), null, typeof(SignatureLoadModel),
@@ -52,6 +53,7 @@ namespace Microsoft.ML.Runtime.Learners
         ISingleCanSaveOnnx
     {
         protected readonly VBuffer<Float> Weight;
+        protected VBuffer<Ciphertext> EncodedWeight;
 
         // _weightsDense is not persisted and is used for performance when the input instance is sparse.
         private VBuffer<Float> _weightsDense;
@@ -94,6 +96,7 @@ namespace Microsoft.ML.Runtime.Learners
 
         /// <summary> The predictor's bias term.</summary>
         public Float Bias { get; protected set; }
+        public Ciphertext EncryptedBias { get; protected set; }
 
         public ColumnType InputType { get; }
 
@@ -103,6 +106,7 @@ namespace Microsoft.ML.Runtime.Learners
 
         public bool CanSaveOnnx => true;
 
+        public Evaluator Evaluator { get; set; }
         /// <summary>
         /// Constructs a new linear predictor.
         /// </summary>
@@ -127,6 +131,27 @@ namespace Microsoft.ML.Runtime.Learners
                 _weightsDenseLock = new object();
         }
 
+        public void EncryptModel(Encryptor encryptor, FractionalEncoder encoder)
+        {
+            // Weights are not actually encrypted (though can be done) for sake of performance.
+            // They are simply encoded into SEAL Plaintext format for evaluation in encrypted space.
+            // SEAL can multiply an encrypted number with non-encrypted number.
+            var encryptedWeight = new Ciphertext[Weight.Values.Length];
+            for (int i = 0; i < Weight.Values.Length; i++)
+            {
+                encryptedWeight[i] = new Ciphertext();
+                encryptor.Encrypt(encoder.Encode(Weight.Values[i]), encryptedWeight[i]);
+            }
+            EncryptedBias = new Ciphertext();
+            encryptor.Encrypt(encoder.Encode(Bias), EncryptedBias);
+            EncodedWeight = new VBuffer<Ciphertext>(Weight.Length, Weight.Count, encryptedWeight.ToArray(), Weight.Indices);
+        }
+
+        public void EncryptParameters()
+        {
+
+        }
+       
         protected LinearPredictor(IHostEnvironment env, string name, ModelLoadContext ctx)
             : base(env, name, ctx)
         {
@@ -181,6 +206,16 @@ namespace Microsoft.ML.Runtime.Learners
                 _weightsDense = Weight;
             else
                 _weightsDenseLock = new object();
+
+            EncryptedBias = new Ciphertext();
+            EncryptedBias.Load(ctx.Reader.BaseStream);
+            var encryptedWeight = new Ciphertext[Weight.Values.Length];
+            for (int i = 0; i < Weight.Values.Length; i++)
+            {
+                encryptedWeight[i] = new Ciphertext();
+                encryptedWeight[i].Load(ctx.Reader.BaseStream);
+            }
+            EncodedWeight = new VBuffer<Ciphertext>(Weight.Length, Weight.Count, encryptedWeight, Weight.Indices);
         }
 
         protected override void SaveCore(ModelSaveContext ctx)
@@ -201,6 +236,15 @@ namespace Microsoft.ML.Runtime.Learners
             ctx.Writer.Write(Weight.Length);
             ctx.Writer.WriteIntArray(Weight.Indices, Weight.IsDense ? 0 : Weight.Count);
             ctx.Writer.WriteFloatArray(Weight.Values, Weight.Count);
+
+            if (EncodedWeight.Length > 0)
+            {
+                EncryptedBias.Save(ctx.Writer.BaseStream);
+                foreach (Ciphertext cf in EncodedWeight.Values)
+                {
+                    cf.Save(ctx.Writer.BaseStream);
+                }
+            }
         }
 
         public JToken SaveAsPfa(BoundPfaContext ctx, JToken input)
@@ -246,6 +290,27 @@ namespace Microsoft.ML.Runtime.Learners
         }
 
         // Generate the score from the given values, assuming they have already been normalized.
+        protected virtual Ciphertext ScoreEncrypted(ref VBuffer<Ciphertext> src)
+        {
+            // Compute dot product between weights (Non-encrypted) and feature vector (Encrypted).
+            // Need to use addition and multiplication constructs defined by SEAL.
+            // Dont know if we can use normal addition and multiplication operators directly.
+            var encryptedResult = new Ciphertext[src.Values.Length];
+            for (int i = 0; i < src.Values.Length; i++)
+            {
+                encryptedResult[i] = new Ciphertext();
+                Evaluator.Multiply(src.Values[i], EncodedWeight.Values[i], encryptedResult[i]);
+            }
+            var encryptedCombination = new Ciphertext();
+            Evaluator.AddMany(encryptedResult.ToList(), encryptedCombination);
+
+            // Add bias. SEAL can only add encrypted number unlike SEAL multiply.
+            Evaluator.Add(encryptedCombination, EncryptedBias);
+
+            return encryptedCombination;
+        }
+
+        // Generate the score from the given values, assuming they have already been normalized.
         protected virtual Float Score(ref VBuffer<Float> src)
         {
             if (src.IsDense)
@@ -276,7 +341,13 @@ namespace Microsoft.ML.Runtime.Learners
                 lock (_weightsDenseLock)
                 {
                     if (_weightsDense.Length == 0 && Weight.Length > 0)
+                    {
                         Weight.CopyToDense(ref _weightsDense);
+                        VBuffer<Ciphertext> encodedWeightsDense = new VBuffer<Ciphertext>();
+                        EncodedWeight.CopyToDense(ref encodedWeightsDense);
+                        EncodedWeight = encodedWeightsDense;
+                    }
+
                 }
             }
         }
@@ -292,6 +363,21 @@ namespace Microsoft.ML.Runtime.Learners
                     if (src.Length != Weight.Length)
                         throw Contracts.Except("Input is of length {0}, but predictor expected length {1}", src.Length, Weight.Length);
                     dst = Score(ref src);
+                };
+            return (ValueMapper<TIn, TOut>)(Delegate)del;
+        }
+
+        public ValueMapper<TIn, TOut> GetEncryptedMapper<TIn, TOut>()
+        {
+            Contracts.Check(typeof(TIn) == typeof(VBuffer<Ciphertext>));
+            Contracts.Check(typeof(TOut) == typeof(Ciphertext));
+
+            ValueMapper<VBuffer<Ciphertext>, Ciphertext> del =
+                (ref VBuffer<Ciphertext> src, ref Ciphertext dst) =>
+                {
+                    if (src.Length != Weight.Length)
+                        throw Contracts.Except("Input is of length {0}, but predictor expected length {1}", src.Length, Weight.Length);
+                    dst = ScoreEncrypted(ref src);
                 };
             return (ValueMapper<TIn, TOut>)(Delegate)del;
         }
