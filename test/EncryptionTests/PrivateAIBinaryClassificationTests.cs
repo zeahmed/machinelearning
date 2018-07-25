@@ -133,7 +133,7 @@ namespace EncryptionTests
             var valueMapperEncrypted = pred.GetEncryptedMapper<VBuffer<Ciphertext>, Ciphertext>();
             var valueMapper = pred.GetMapper<VBuffer<Single>, Single>();
 
-
+            BinaryWriter writer = new BinaryWriter(new FileStream(modelFile.Replace(".zip",".bin"), FileMode.Create));
             // Prepare for iteration over the data pipeline.
             var cursorFactory = new FloatLabelCursor.Factory(new RoleMappedData(testData, DefaultColumnNames.Label, DefaultColumnNames.Features)
                                                     , CursOpt.Label | CursOpt.Features);
@@ -169,10 +169,37 @@ namespace EncryptionTests
 
                     // Compare the results to some tolerance.
                     Assert.True(Math.Abs(predictionEncrypted - prediction) <= (1e-03 + 1e-08 * Math.Abs(prediction)));
+
+                    WriteData(writer, vBufferencryptedFeatures);
                 }
 
                 Output.WriteLine("Avg. Prediction Time : {0}ms", executionTime / sampleCount);
                 Output.WriteLine("Avg. Prediction Time (Encrypted) : {0}ms", encryptedExecutionTime / sampleCount);
+            }
+            writer.Close();
+        }
+
+        private void WriteData(BinaryWriter writer, VBuffer<Ciphertext> features)
+        {
+            if (features.Indices == null)
+            {
+                writer.Write(false);
+                writer.Write(features.Values.Length);
+                for (int i = 0; i < features.Values.Length; i++)
+                {
+                    features.Values[i].Save(writer.BaseStream);
+                }
+            }
+            else
+            {
+                writer.Write(true);
+                writer.Write(features.Length);
+                writer.Write(features.Values.Length);
+                for (int i = 0; i < features.Values.Length; i++)
+                {
+                    writer.Write(features.Indices[i]);
+                    features.Values[i].Save(writer.BaseStream);
+                }
             }
         }
 

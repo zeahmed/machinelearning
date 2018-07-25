@@ -39,13 +39,6 @@ using Microsoft.Research.SEAL;
 
 namespace Microsoft.ML.Runtime.Learners
 {
-    public class EncryptionContext
-    {
-        public Evaluator Evaluator { get; set; }
-        public Encryptor Encryptor { get; set; }
-        public FractionalEncoder Encoder { get; set; }
-    }
-
     public abstract class LinearPredictor : PredictorBase<Float>,
         IValueMapper,
         ICanSaveInIniFormat,
