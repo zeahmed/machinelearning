@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.ML.Runtime;
 using Microsoft.ML.Runtime.CommandLine;
@@ -23,7 +24,7 @@ using TensorFlow;
 
 namespace Microsoft.ML.Transforms
 {
-    public sealed class TensorflowTransform : RowToRowMapperTransformBase
+    public sealed class TensorflowTransform : RowToRowMapperTransformBase, IDisposable
     {
         public sealed class Column : ManyToOneColumn
         {
@@ -55,6 +56,23 @@ namespace Microsoft.ML.Transforms
 
         private sealed class Bindings : ManyToOneColumnBindingsBase
         {
+            public sealed class TFColInfo
+            {
+                public readonly TFShape[] TfShapes;
+                public readonly TFDataType[] TfTypes;
+
+                public TFColInfo(TFShape[] tfShapes, TFDataType[] tfType)
+                {
+                    Contracts.AssertNonEmpty(tfShapes);
+                    Contracts.AssertNonEmpty(tfType);
+                    Contracts.Assert(tfType.Length == tfType.Length);
+
+                    TfShapes = tfShapes;
+                    TfTypes = tfType;
+                }
+            }
+
+            public readonly TFColInfo[] TfColInfo;
             public readonly string[] OutputColNames;
             public readonly ColumnType[] OutputCols;
             public Bindings(Column[] columns, ISchema schemaInput, TensorflowTransform parent)
@@ -62,20 +80,48 @@ namespace Microsoft.ML.Transforms
             {
                 OutputCols = new ColumnType[columns.Length];
                 OutputColNames = new string[columns.Length];
+                TfColInfo = new TFColInfo[columns.Length];
                 for (int i=0; i<columns.Length; i++)
                 {
-                    var tfoutput = new TFOutput(parent._session.Graph[columns[i].Name]);
-                    var shape = parent._session.Graph.GetTensorShape(tfoutput);
-
-                    int size = 1;
-                    for(int k=0;k<shape.NumDimensions;k++)
-                    {
-                        size *= (int) (shape[k] == -1? BatchSize : shape[k]);
-                    }
-                    // Output tensor is expected to be of shape [Batch, Data]
-                    OutputCols[i] = new VectorType(PrimitiveType.FromKind(DataKind.R4), new int[] { size });
                     OutputColNames[i] = columns[i].Name;
+                    OutputCols[i] = BuildOuputMetaData(parent._session, columns[i].Name);
+                    TfColInfo[i] = BuildTFInputMetaData(parent._session, columns[i].Source);
                 }
+            }
+
+            private ColumnType BuildOuputMetaData(TFSession tfSession, string columnName)
+            {
+                var tfoutput = new TFOutput(tfSession.Graph[columnName]);
+                var shape = tfSession.Graph.GetTensorShape(tfoutput);
+
+                int[] dims = new int[shape.NumDimensions];
+                for (int k = 0; k < shape.NumDimensions; k++)
+                {
+                    dims[k] = (int)(shape[k] == -1 ? BatchSize : shape[k]);
+                }
+                // Output tensor is expected to be of shape [Batch, Data]
+               return new VectorType(PrimitiveType.FromKind(DataKind.R4), dims);
+            }
+
+            private TFColInfo BuildTFInputMetaData(TFSession tfSession, string[] source)
+            {
+                var tfShapes = new TFShape[source.Length];
+                var tfTypes = new TFDataType[source.Length];
+                for (int j = 0; j < source.Length; j++)
+                {
+                    var inputColName = source[j];
+                    var tfoutput = new TFOutput(tfSession.Graph[inputColName]);
+                    tfShapes[j] = tfSession.Graph.GetTensorShape(tfoutput);
+                    tfTypes[j] = tfoutput.OutputType;
+
+                    var l = new long[tfShapes[j].NumDimensions];
+                    for (int ishape = 0; ishape < tfShapes[j].NumDimensions; ishape++)
+                    {
+                        l[ishape] = tfShapes[j][ishape] == -1 ? BatchSize : tfShapes[j][ishape];
+                    }
+                    tfShapes[j] = new TFShape(l);
+                }
+                return new TFColInfo(tfShapes, tfTypes);
             }
 
             protected override ColumnType GetColumnTypeCore(int iinfo)
@@ -113,7 +159,7 @@ namespace Microsoft.ML.Transforms
         /// <summary>
         /// Tensorflow session object
         /// </summary>
-        private readonly TFSession _session;
+        private TFSession _session;
 
         /// <summary>
         /// Tensorflow saves model with 'serve' tag when it is intended for serving.
@@ -170,6 +216,30 @@ namespace Microsoft.ML.Transforms
                     metaGraphDef);
         }
 
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        ~TensorflowTransform()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (_session != null)
+                {
+                    _session.CloseSession();
+                    _session.DeleteSession();
+                }
+                _session = null;
+            }
+        }
+
         public override void Save(ModelSaveContext ctx)
         {
             throw new NotImplementedException();
@@ -180,40 +250,12 @@ namespace Microsoft.ML.Transforms
             return input.GetGetter<T>(_bindings.Infos[iinfo].SrcIndices[isrc]);
         }
 
-        /*private Delegate MakeGetter(IRow input, int iinfo)
+        private float[] FetchFloatData(IntPtr data, Type type, int size)
         {
-            var info = _bindings.Infos[iinfo];
-            TFDataType inputType = GetTFType(input.Schema.GetColumnName(_bindings.Infos[iinfo].SrcIndices[0]));
-            TFDataType outputType = GetTFType(_bindings.OutputColNames[iinfo]);
-            if ( (inputType  == TFDataType.Float || ((int)inputType) == 101) && outputType == TFDataType.Float)
-            {
-                Func<IRow, int, ValueGetter<VBuffer<float>>> del = MakeGetter<float, float>;
-                var meth = del.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(typeof(float), typeof(float));
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
-            }
-
-            if ( (inputType == TFDataType.Int32 || ((int)inputType) == 103) && outputType == TFDataType.Float)
-            {
-                Func<IRow, int, ValueGetter<VBuffer<float>>> del = MakeGetter<int, float>;
-                var meth = del.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(typeof(int), typeof(float));
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
-            }
-
-            if ((inputType == TFDataType.Float || ((int)inputType) == 101) && outputType == TFDataType.Int32)
-            {
-                Func<IRow, int, ValueGetter<VBuffer<int>>> del = MakeGetter<float, int>;
-                var meth = del.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(typeof(float), typeof(int));
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
-            }
-            if ((inputType == TFDataType.Int32 || ((int)inputType) == 103) && outputType == TFDataType.Int32)
-            {
-                Func<IRow, int, ValueGetter<VBuffer<int>>> del = MakeGetter<int, int>;
-                var meth = del.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(typeof(int), typeof(int));
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
-            }
-
-            return null;
-        }*/
+            var result = new float[size];
+            Marshal.Copy(data, result, 0, size);
+            return result;
+        }
 
         private ValueGetter<VBuffer<float>> MakeGetter(IRow input, int iinfo)
         {
@@ -222,6 +264,7 @@ namespace Microsoft.ML.Transforms
             //Host.Assert(Infos[iinfo].TypeSrc.IsText);
 
             var info = _bindings.Infos[iinfo];
+            var tfInfo = _bindings.TfColInfo[iinfo];
             var srcGetterOnes = new ValueGetter<float>[info.SrcIndices.Length];
             var srcGetterVecs = new ValueGetter<VBuffer<float>>[info.SrcIndices.Length];
             for (int j = 0; j < info.SrcIndices.Length; j++)
@@ -246,17 +289,7 @@ namespace Microsoft.ML.Transforms
                             VBuffer<float> dense = default;
                             tmpBuf.CopyToDense(ref dense);
 
-                            var tfoutput = new TFOutput(_session.Graph[inputName]);
-                            var shape = _session.Graph.GetTensorShape(tfoutput);
-
-                            var l = new long[shape.NumDimensions];
-                            for (int ishape = 0; ishape < shape.NumDimensions; ishape++)
-                            {
-                                l[ishape] = shape[ishape] == -1 ? BatchSize : shape[ishape];
-                            }
-                            shape = new TFShape(l);
-
-                            var tensor = TFTensor.FromBuffer(shape, dense.Values, 0, dense.Length);
+                            var tensor = TFTensor.FromBuffer(tfInfo.TfShapes[i], dense.Values, 0, dense.Length);
                             runner.AddInput(inputName, tensor);
                         }
                         else
@@ -271,10 +304,8 @@ namespace Microsoft.ML.Transforms
 
                     Contracts.Assert(tensors.Length > 0);
 
-                    var output = tensors[0].GetValue(true);
-                    Contracts.AssertValue(output);
-                    var floats = (float[][])output;
-                    dst = new VBuffer<float>(floats[0].Length, floats[0]);
+                    var output = FetchFloatData(tensors[0].Data, _bindings.OutputCols[iinfo].RawType, _bindings.OutputCols[iinfo].VectorSize);
+                    dst = new VBuffer<float>(output.Length, output);
                 };
         }
 

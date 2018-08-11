@@ -6,7 +6,9 @@ using Microsoft.ML.Runtime;
 using Microsoft.ML.Runtime.Api;
 using Microsoft.ML.Runtime.Data;
 using Microsoft.ML.Runtime.Learners;
+using Microsoft.ML.Runtime.LightGBM;
 using Microsoft.ML.Transforms;
+using System;
 using System.Collections.Generic;
 using Xunit;
 
@@ -99,14 +101,15 @@ namespace Microsoft.ML.Scenarios
                 }, new MultiFileSource(dataPath));
 
                 IDataView trans = new TensorflowTransform(env, loader, model_location, "Softmax", "Placeholder");
-                trans = new ConcatTransform(env, trans, "Features", "Softmax");
+                trans = new ConcatTransform(env, trans, "reshape_input", "Placeholder");
+                trans = new TensorflowTransform(env, trans, model_location, "dense/Relu", "reshape_input");
+                trans = new ConcatTransform(env, trans, "Features", "Softmax", "dense/Relu");
 
-                var trainer = new SdcaMultiClassTrainer(env, new SdcaMultiClassTrainer.Arguments() { NumThreads = 1 });
+                var trainer = new LightGbmMulticlassTrainer(env, new LightGbmArguments());
 
-                var cached = new CacheDataView(env, trans, prefetch: null);
+                 var cached = new CacheDataView(env, trans, prefetch: null);
                 var trainRoles = new RoleMappedData(cached, label: "Label", feature: "Features");
                 var pred = trainer.Train(trainRoles);
-
             }
         }
     }
