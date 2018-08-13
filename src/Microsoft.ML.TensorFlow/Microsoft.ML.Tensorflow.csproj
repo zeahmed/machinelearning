@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IncludeInPackage>Microsoft.ML</IncludeInPackage>
+    <DefineConstants>CORECLR</DefineConstants>
+    <UseMLCodeAnalyzer>false</UseMLCodeAnalyzer>
+    <UseStyleCopAnalyzer>false</UseStyleCopAnalyzer>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TFSharpPath>F:\tensorflow\TensorFlowSharp\TensorFlowSharp</TFSharpPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(TFSharpPath)\Tensorflow.cs" Link="Tensorflow.cs" />
+    <Compile Include="$(TFSharpPath)\Tensor.cs" Link="Tensor.cs" />
+    <Compile Include="$(TFSharpPath)\Buffer.cs" Link="Buffer.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Grab TF#'s native bins temporarily -->
+    <PackageReference Include="TensorFlowSharp" Version="1.9.0" ExcludeAssets="Compile;Runtime" />
+  </ItemGroup>
+
+</Project>
