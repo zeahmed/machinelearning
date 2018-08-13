@@ -1,17 +1,7 @@
-﻿﻿//
-// TensorFlow.cs; Bindings to the TensorFlow C API for .NET
-// 
-// Authors:
-//   Miguel de Icaza (miguel@microsoft.com)
-//
-// Strongly typed API
-// The API generally takes a TF_Status that defaults to null, if the value is null, on error, this raises an exception, otherwise, the error is returned on the TF_Status.
-// You can use TFStatus.Default for a value to use when you do not want to create the value yourself and are ok reusing the value.
-//
-// Guidaance on doing language bindings for Tensorflow:
-// https://www.tensorflow.org/versions/r0.11/how_tos/language_bindings/
-//
-//
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
+
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -3045,6 +3035,7 @@ namespace TensorFlow
 			return result;
 		}
 
+#if TF_OPS
 		/// <summary>
 		/// Restores a tensor from a serialized tensorflor file.
 		/// </summary>
@@ -3102,7 +3093,7 @@ namespace TensorFlow
 											  null, IntPtr.Zero));
 				      }).ToArray ()), tensors.Select (d => d.Item2).ToArray ())).Run ();
 		}
-   
+#endif // TF_OPS
 	}
 
 	/// <summary>
