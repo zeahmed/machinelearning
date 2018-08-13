@@ -7,14 +7,7 @@
     <UseMLCodeAnalyzer>false</UseMLCodeAnalyzer>
     <UseStyleCopAnalyzer>false</UseStyleCopAnalyzer>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TFSharpPath>F:\tensorflow\TensorFlowSharp\TensorFlowSharp</TFSharpPath>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Include="$(TFSharpPath)\Tensorflow.cs" Link="Tensorflow.cs" />
-    <Compile Include="$(TFSharpPath)\Tensor.cs" Link="Tensor.cs" />
-    <Compile Include="$(TFSharpPath)\Buffer.cs" Link="Buffer.cs" />
-  </ItemGroup>
 
   <ItemGroup>
     <!-- Grab TF#'s native bins temporarily -->
