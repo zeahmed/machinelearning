@@ -28,6 +28,10 @@ using System.Numerics;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 
+#pragma warning disable MSML_GeneralName
+#pragma warning disable MSML_PrivateFieldName
+#pragma warning disable MSML_ParameterLocalVarName
+
 namespace TensorFlow
 {
 	internal static partial class NativeBinding
@@ -1194,13 +1198,18 @@ namespace TensorFlow
 		/// </remarks>
 		public class Runner
 		{
-			private List<TFOutput> inputs = new List<TFOutput> (), outputs = new List<TFOutput> ();
-            private List<TFTensor> inputValues = new List<TFTensor> ();
-            private List<TFOperation> targets = new List<TFOperation> ();
+            private List<TFOutput> inputs;
+            private List<TFOutput> outputs;
+            private List<TFTensor> inputValues;
+            private List<TFOperation> targets;
             private TFSession session;
 
 			internal Runner (TFSession session)
 			{
+                inputs = new List<TFOutput>();
+                outputs = new List<TFOutput>();
+                inputValues = new List<TFTensor>();
+                targets = new List<TFOperation>();
 				this.session = session;
 			}
 

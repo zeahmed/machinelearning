@@ -12,6 +12,8 @@ using System.Text;
 using size_t = System.UIntPtr;
 using TF_Tensor = System.IntPtr;
 
+#pragma warning disable MSML_ParameterLocalVarName
+
 namespace TensorFlow
 {
 
