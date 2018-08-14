@@ -22,7 +22,7 @@ namespace TensorFlow
 	public sealed class MonoPInvokeCallbackAttribute : Attribute
 	{
 		/// <summary>
-		/// Use this constructor to annotate the type of the callback function that 
+		/// Use this constructor to annotate the type of the callback function that
 		/// will be invoked from unmanaged code.
 		/// </summary>
 		/// <param name="t">T.</param>
@@ -46,7 +46,7 @@ namespace TensorFlow
 	/// of data out of TensorFlow.
 	/// </para>
 	/// <para>
-	/// There are two constructors to wrap existing data, one to wrap blocks that are 
+	/// There are two constructors to wrap existing data, one to wrap blocks that are
 	/// pointed to by an IntPtr and one that takes a byte array that we want to wrap.
 	/// </para>
 	/// <para>
@@ -64,23 +64,23 @@ namespace TensorFlow
 	{
 		// extern TF_Buffer * TF_NewBufferFromString (const void *proto, size_t proto_len);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe LLBuffer* TF_NewBufferFromString (IntPtr proto, IntPtr proto_len);
+		private static extern unsafe LLBuffer* TF_NewBufferFromString (IntPtr proto, IntPtr proto_len);
 
 		// extern TF_Buffer * TF_NewBuffer ();
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe LLBuffer* TF_NewBuffer ();
+		private static extern unsafe LLBuffer* TF_NewBuffer ();
 
 		internal TFBuffer (IntPtr handle) : base (handle) { }
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="T:TensorFlow.TFBuffer"/> class.
 		/// </summary>
-		unsafe public TFBuffer () : base ((IntPtr)TF_NewBuffer ())
+		public unsafe TFBuffer () : base ((IntPtr)TF_NewBuffer ())
 		{
 		}
 
 		/// <summary>
-		/// Signature of the method that is invoked to release the data.  
+		/// Signature of the method that is invoked to release the data.
 		/// </summary>
 		/// <remarks>
 		/// Methods of this signature are invoked with the data pointer and the
@@ -88,7 +88,7 @@ namespace TensorFlow
 		/// data.  If you are using this on platforms with static compilation
 		/// like iOS, you need to annotate your callback with the MonoPInvokeCallbackAttribute,
 		/// like this:
-		/// 
+		///
 		/// <code>
 		/// [TensorFlow.MonoPInvokeCallback (typeof (BufferReleaseFunc))]
 		/// internal static void MyFreeFunc (IntPtr data, IntPtr length){..}
@@ -108,7 +108,7 @@ namespace TensorFlow
 		/// is no longer in use.   If the value is not null, the provided method will be invoked to release
 		/// the data when the TFBuffer is disposed, or the contents of the buffer replaced.
 		/// </remarks>
-		unsafe public TFBuffer (IntPtr buffer, long size, BufferReleaseFunc release) : base ((IntPtr)TF_NewBuffer ())
+		public unsafe TFBuffer (IntPtr buffer, long size, BufferReleaseFunc release) : base ((IntPtr)TF_NewBuffer ())
 		{
 			LLBuffer* buf = (LLBuffer*)handle;
 			buf->data = buffer;
@@ -125,22 +125,21 @@ namespace TensorFlow
 			Marshal.FreeHGlobal (data);
 		}
 
-		static IntPtr FreeBufferFunc;
-		static BufferReleaseFunc FreeBlockDelegate;
-		
+		internal static IntPtr FreeBufferFunc;
+		internal static BufferReleaseFunc FreeBlockDelegate;
+
 		static TFBuffer ()
 		{
 			FreeBlockDelegate = FreeBlock;
 			FreeBufferFunc = Marshal.GetFunctionPointerForDelegate<BufferReleaseFunc> (FreeBlockDelegate);
 		}
 
-
 		/// <summary>
 		/// Initializes a new instance of the <see cref="T:TensorFlow.TFBuffer"/> by making a copy of the provided byte array.
 		/// </summary>
 		/// <param name="buffer">Buffer of data that will be wrapped.</param>
 		/// <remarks>
-		/// This constructor makes a copy of the data into an unmanaged buffer, 
+		/// This constructor makes a copy of the data into an unmanaged buffer,
 		/// so the byte array is not pinned.
 		/// </remarks>
 		public TFBuffer (byte [] buffer) : this (buffer, 0, buffer.Length) { }
@@ -152,7 +151,7 @@ namespace TensorFlow
 		/// <param name="start">Starting offset into the buffer to wrap.</param>
 		/// <param name="count">Number of bytes from the buffer to keep.</param>
 		/// <remarks>
-		/// This constructor makes a copy of the data into an unmanaged buffer, 
+		/// This constructor makes a copy of the data into an unmanaged buffer,
 		/// so the byte array is not pinned.
 		/// </remarks>
 		public TFBuffer (byte [] buffer, int start, int count) : this ()
@@ -171,11 +170,11 @@ namespace TensorFlow
 			}
 		}
 
-		unsafe internal LLBuffer* LLBuffer => (LLBuffer*)handle;
+		internal unsafe LLBuffer* LLBuffer => (LLBuffer*)handle;
 
 		// extern void TF_DeleteBuffer (TF_Buffer *);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe void TF_DeleteBuffer (LLBuffer* buffer);
+		private static extern unsafe void TF_DeleteBuffer (LLBuffer* buffer);
 
 		internal override void NativeDispose (IntPtr handle)
 		{
@@ -184,7 +183,7 @@ namespace TensorFlow
 
 		// extern TF_Buffer TF_GetBuffer (TF_Buffer *buffer);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe LLBuffer TF_GetBuffer (LLBuffer* buffer);
+		private static extern unsafe LLBuffer TF_GetBuffer (LLBuffer* buffer);
 
 		/// <summary>
 		/// Returns a byte array representing the data wrapped by this buffer.

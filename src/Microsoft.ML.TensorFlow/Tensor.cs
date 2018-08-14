@@ -38,7 +38,7 @@ namespace TensorFlow
 	/// </para>
 	/// <para>
 	/// The special "String" tensor data type that you will find in TensorFlow documentation
-	/// really represents a byte array.   You can create string tensors by using the <see cref="M:TensorFlow.TFTensor.CreateString"/> 
+	/// really represents a byte array.   You can create string tensors by using the <see cref="M:TensorFlow.TFTensor.CreateString"/>
 	/// method that takes a byte array buffer as input.
 	/// </para>
 	/// <example>
@@ -46,12 +46,12 @@ namespace TensorFlow
 	///   TFTensor scalar = 1;           // Creates a 0D tensor, for the integer value 1
 	///   int d = scalar.NumDims;        // d will be equal to zero, as it is a 0D tensor
 	///   long [] shape = scalar.Shape   // returns an empty array, as it is a 0D tensor
-	///   
+	///
 	///   TFTensor list = new [] {1,2,3} // Creates a 1D tensor, or vector, for the values 1, 2, 3
 	///   d = list.NumDims;              // d will be one
 	///   shape = list.Shape;            // shape will be an array with a single value 3, representing that the dimension 0 has 3 elements
-	/// 
-	///                                  // Creates a 3D tensor, 
+	///
+	///                                  // Creates a 3D tensor,
 	///   TFTensor cube = new [,,] { {{1,2,3},{4,5,6}}}
 	///   d = cube.NumDims               // d will be 3
 	///   shape = list.Shape             // shape will be [1,2,3] which is the shape of the above 3D array
@@ -67,16 +67,16 @@ namespace TensorFlow
 
 		// extern TF_Tensor * TF_NewTensor (TF_DataType, const int64_t *dims, int num_dims, void *data, size_t len, void (* deallocator)(void *, size_t, void *), void *deallocator_arg);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe TF_Tensor TF_NewTensor (TFDataType dataType, long [] dims, int num_dims, IntPtr data, size_t len, Deallocator deallocator, IntPtr deallocator_arg);
+		private static extern unsafe TF_Tensor TF_NewTensor (TFDataType dataType, long [] dims, int num_dims, IntPtr data, size_t len, Deallocator deallocator, IntPtr deallocator_arg);
 
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe TF_Tensor TF_NewTensor (TFDataType dataType, IntPtr zeroDims, int num_dims, IntPtr data, size_t len, Deallocator deallocator, IntPtr deallocator_arg);
+		private static extern unsafe TF_Tensor TF_NewTensor (TFDataType dataType, IntPtr zeroDims, int num_dims, IntPtr data, size_t len, Deallocator deallocator, IntPtr deallocator_arg);
 
 		internal TFTensor (IntPtr handle) : base (handle) { }
 
-		static Deallocator FreeTensorDataDelegate = FreeTensorData;
-		static Deallocator FreeTensorHandleDelegate = FreeTensorHandle;
-		
+		internal static Deallocator FreeTensorDataDelegate = FreeTensorData;
+		internal static Deallocator FreeTensorHandleDelegate = FreeTensorHandle;
+
 		[MonoPInvokeCallback (typeof (Deallocator))]
 		internal static void FreeTensorData (IntPtr data, IntPtr len, IntPtr closure)
 		{
@@ -112,7 +112,7 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.Int8, shape, data, start, count, size: 2));
 		}
-		
+
 		/// <summary>
 		/// Creates a new tensor from a portion of an array of bytes
 		/// </summary>
@@ -130,7 +130,7 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.UInt8, shape, data, start, count, size: 1));
 		}
-		
+
 		/// <summary>
 		/// Creates a new tensor from a portion of an array of shorts
 		/// </summary>
@@ -148,7 +148,7 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.Int16, shape, data, start, count, size: 2));
 		}
-		
+
 		/// <summary>
 		/// Creates a new tensor from a portion of an array of ushorts
 		/// </summary>
@@ -166,7 +166,7 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.UInt16, shape, data, start, count, size: 2));
 		}
-		
+
 		/// <summary>
 		/// Creates a new tensor from a portion of an array of ints
 		/// </summary>
@@ -184,7 +184,7 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.Int32, shape, data, start, count, size: 4));
 		}
-		
+
 		/// <summary>
 		/// Creates a new tensor from a portion of an array of floats
 		/// </summary>
@@ -202,7 +202,7 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.Float, shape, data, start, count, size: 4));
 		}
-		
+
 		/// <summary>
 		/// Creates a new tensor from a portion of an array of doubles
 		/// </summary>
@@ -220,7 +220,7 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.Double, shape, data, start, count, size: 8));
 		}
-		
+
 		/// <summary>
 		/// Creates a new tensor from a portion of an array of longs
 		/// </summary>
@@ -238,7 +238,7 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.Int64, shape, data, start, count, size: 8));
 		}
-		
+
 		/// <summary>
 		/// Creates a new tensor from a portion of an array of Complex numbers
 		/// </summary>
@@ -256,7 +256,6 @@ namespace TensorFlow
 		{
 			return new TFTensor (SetupTensor (TFDataType.Complex128, shape, data, start, count, size: 16));
 		}
-
 
 		/// <summary>
 		/// Creates a constant tensor with a single dimension from an integer value.
@@ -409,13 +408,13 @@ namespace TensorFlow
 		public TFTensor (Complex [] data) : base (SetupTensor (TFDataType.Complex128, data, size: 16)) { }
 
 		// Convenience function to factor out the setup of a new tensor from an array
-		static IntPtr SetupTensor (TFDataType dt, long [] dims, Array data, int size)
+		internal static IntPtr SetupTensor (TFDataType dt, long [] dims, Array data, int size)
 		{
 			return SetupTensor (dt, dims, data, start: 0, count: data.Length, size: size);
 		}
 
 		// Convenience function to factor out the setup of a new tensor from an array
-		static IntPtr SetupTensor (TFDataType dt, Array data, int size)
+		internal static IntPtr SetupTensor (TFDataType dt, Array data, int size)
 		{
 			long [] dims = new long [data.Rank];
 			for (int i = 0; i < dims.Length; i++)
@@ -424,16 +423,16 @@ namespace TensorFlow
 			return SetupTensor (dt, dims, data, start: 0, count: data.Length, size: size);
 		}
 
-		// Use for single dimension arrays 
-		static IntPtr SetupTensor (TFDataType dt, TFShape shape, Array data, int start, int count, int size)
+		// Use for single dimension arrays
+		internal static IntPtr SetupTensor (TFDataType dt, TFShape shape, Array data, int start, int count, int size)
 		{
 			if (shape == null)
 				throw new ArgumentNullException (nameof (shape));
 			return SetupTensor (dt, shape.dims, data, start, count, size);
 		}
-		
-		// Use for single dimension arrays 
-		static IntPtr SetupTensor (TFDataType dt, long [] dims, Array data, int start, int count, int size)
+
+		// Use for single dimension arrays
+		internal static IntPtr SetupTensor (TFDataType dt, long [] dims, Array data, int start, int count, int size)
 		{
 			if (start < 0 || start > data.Length - count)
 				throw new ArgumentException ("start + count > Array size");
@@ -445,7 +444,6 @@ namespace TensorFlow
 			else
 				return TF_NewTensor (dt, dims, dims.Length, dataHandle.AddrOfPinnedObject () + start * size, (UIntPtr)(count * size), FreeTensorHandleDelegate, GCHandle.ToIntPtr (dataHandle));
 		}
-
 
 		// General purpose constructor, specifies data type and gets pointer to buffer
 		// Is the default good, one where we let the user provide their own deallocator, or should we make a copy in that case?
@@ -474,9 +472,9 @@ namespace TensorFlow
 
 		// extern TF_Tensor * TF_AllocateTensor (TF_DataType, const int64_t *dims, int num_dims, size_t len);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe TF_Tensor TF_AllocateTensor (TFDataType dataType, long [] dims, int num_dims, size_t len);
+		private static extern unsafe TF_Tensor TF_AllocateTensor (TFDataType dataType, long [] dims, int num_dims, size_t len);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe TF_Tensor TF_AllocateTensor (TFDataType dataType, IntPtr zeroDim, int num_dims, size_t len);
+		private static extern unsafe TF_Tensor TF_AllocateTensor (TFDataType dataType, IntPtr zeroDim, int num_dims, size_t len);
 
 		/// <summary>
 		/// Low-level: Creates an empty tensor of the specified type and shape, with the specified number of elements
@@ -497,11 +495,11 @@ namespace TensorFlow
 
 		// extern void TF_DeleteTensor (TF_Tensor *);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe void TF_DeleteTensor (TF_Tensor tensor);
+		private static extern unsafe void TF_DeleteTensor (TF_Tensor tensor);
 
 		// extern TF_DataType TF_TensorType (const TF_Tensor *);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe TFDataType TF_TensorType (TF_Tensor tensor);
+		private static extern unsafe TFDataType TF_TensorType (TF_Tensor tensor);
 
 		/// <summary>
 		/// Returns the data type for the tensor.
@@ -511,7 +509,7 @@ namespace TensorFlow
 
 		// extern int TF_NumDims (const TF_Tensor *);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe int TF_NumDims (TF_Tensor tensor);
+		private static extern unsafe int TF_NumDims (TF_Tensor tensor);
 
 		/// <summary>
 		/// Returns the number of dimensions in the tensor.
@@ -523,7 +521,7 @@ namespace TensorFlow
 
 		// extern int64_t TF_Dim (const TF_Tensor *tensor, int dim_index);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe long TF_Dim (TF_Tensor tensor, int dim_index);
+		private static extern unsafe long TF_Dim (TF_Tensor tensor, int dim_index);
 
 		/// <summary>
 		/// Returns the number of elements on a specific dimension in the tensor.
@@ -542,13 +540,13 @@ namespace TensorFlow
 
 		// extern size_t TF_TensorByteSize (const TF_Tensor *);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe size_t TF_TensorByteSize (TF_Tensor tensor);
+		private static extern unsafe size_t TF_TensorByteSize (TF_Tensor tensor);
 
 		public size_t TensorByteSize => TF_TensorByteSize (handle);
 
 		// extern void * TF_TensorData (const TF_Tensor *);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
-		static extern unsafe IntPtr TF_TensorData (TF_Tensor tensor);
+		private static extern unsafe IntPtr TF_TensorData (TF_Tensor tensor);
 
 		/// <summary>
 		/// Returns a pointer to the raw data in the tensor.
@@ -613,7 +611,7 @@ namespace TensorFlow
 			}
 		}
 
-		static unsafe object FetchSimple (TFDataType dt, IntPtr data)
+		private static unsafe object FetchSimple (TFDataType dt, IntPtr data)
 		{
 			switch (dt) {
 			case TFDataType.Float:
@@ -643,12 +641,12 @@ namespace TensorFlow
 			}
 		}
 
-		unsafe static void Copy (IntPtr src, void* target, int size)
+		internal static unsafe void Copy (IntPtr src, void* target, int size)
 		{
 			Buffer.MemoryCopy ((void*)src, target, size, size);
 		}
 
-		static unsafe void FetchFlatArray (Array target, TFDataType dt, IntPtr data)
+        internal static unsafe void FetchFlatArray (Array target, TFDataType dt, IntPtr data)
 		{
 			int len = target.Length;
 			switch (dt) {
@@ -710,7 +708,7 @@ namespace TensorFlow
 			}
 		}
 
-		static unsafe object FetchJaggedArray (Type t, TFDataType dt, ref IntPtr data, long [] shape, int level = 0)
+		private static unsafe object FetchJaggedArray (Type t, TFDataType dt, ref IntPtr data, long [] shape, int level = 0)
 		{
 			Array target;
 
@@ -791,7 +789,7 @@ namespace TensorFlow
 			return target;
 		}
 
-		static void FetchMultiDimensionalArray (Array target, TFDataType dt, IntPtr data, long [] shape)
+		private static void FetchMultiDimensionalArray (Array target, TFDataType dt, IntPtr data, long [] shape)
 		{
 			var idx = new int [shape.Length];
 			for (int i = 0; i < shape.Length; i++) {
@@ -801,7 +799,7 @@ namespace TensorFlow
 			Copy (target, dt, shape, idx, 0, ref data);
 		}
 
-		static unsafe void Copy (Array target, TFDataType dt, long [] shape, int [] idx, int level, ref IntPtr data)
+		private static unsafe void Copy (Array target, TFDataType dt, long [] shape, int [] idx, int level, ref IntPtr data)
 		{
 			if (level < shape.Length - 1) {
 				for (idx [level] = 0; idx [level] < shape [level]; idx [level]++)
@@ -916,4 +914,4 @@ namespace TensorFlow
 
 	}
 
-}	
+}
