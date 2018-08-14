@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -16,15 +17,15 @@ using Microsoft.ML.Runtime.Model;
 using Microsoft.ML.Transforms;
 using TensorFlow;
 
-[assembly: LoadableClass(TensorflowTransform.Summary, typeof(TensorflowTransform), typeof(TensorflowTransform.Arguments), typeof(TensorflowTransform),
-    TensorflowTransform.UserName, "CopyColumns", "CopyColumnsTransform", TensorflowTransform.ShortName, DocName = "transform/CopyColumnsTransform.md")]
+[assembly: LoadableClass(TensorflowTransform.Summary, typeof(TensorflowTransform), typeof(TensorflowTransform.Arguments), typeof(SignatureDataTransform),
+    TensorflowTransform.UserName, TensorflowTransform.ShortName)]
 
 [assembly: LoadableClass(TensorflowTransform.Summary, typeof(TensorflowTransform), null, typeof(SignatureLoadDataTransform),
     TensorflowTransform.UserName, TensorflowTransform.LoaderSignature)]
 
 namespace Microsoft.ML.Transforms
 {
-    public sealed class TensorflowTransform : RowToRowMapperTransformBase, IDisposable
+    public sealed class TensorflowTransform : RowToRowMapperTransformBase
     {
         public sealed class Column : ManyToOneColumn
         {
@@ -50,23 +51,28 @@ namespace Microsoft.ML.Transforms
             [Argument(ArgumentType.Multiple | ArgumentType.Required, HelpText = "New column definition(s) (optional form: name:src)", ShortName = "col", SortOrder = 1)]
             public Column[] Column;
 
-            [Argument(ArgumentType.Required, HelpText = "Directory where the tensorflow model is saved.", ShortName = "ModelDir", SortOrder = 2)]
-            public string ModelDir;
+            [Argument(ArgumentType.Required, HelpText = "This is the frozen protobuf model file. Please see https://www.tensorflow.org/mobile/prepare_models for more detail(s).", ShortName = "ModelDir", SortOrder = 2)]
+            public string ModelFile;
+
+            [Argument(ArgumentType.Required, HelpText = "Batch size.", ShortName = "BatchSize", SortOrder = 3)]
+            public int BatchSize = 1;
         }
 
         private sealed class Bindings : ManyToOneColumnBindingsBase
         {
             public sealed class TFColInfo
             {
+                public readonly string[] InputColNames;
                 public readonly TFShape[] TfShapes;
                 public readonly TFDataType[] TfTypes;
 
-                public TFColInfo(TFShape[] tfShapes, TFDataType[] tfType)
+                public TFColInfo(string[] inputColNames, TFShape[] tfShapes, TFDataType[] tfType)
                 {
                     Contracts.AssertNonEmpty(tfShapes);
                     Contracts.AssertNonEmpty(tfType);
                     Contracts.Assert(tfType.Length == tfType.Length);
 
+                    InputColNames = inputColNames;
                     TfShapes = tfShapes;
                     TfTypes = tfType;
                 }
@@ -75,6 +81,7 @@ namespace Microsoft.ML.Transforms
             public readonly TFColInfo[] TfColInfo;
             public readonly string[] OutputColNames;
             public readonly ColumnType[] OutputCols;
+
             public Bindings(Column[] columns, ISchema schemaInput, TensorflowTransform parent)
                 : base(columns, schemaInput, TestTypes)
             {
@@ -84,12 +91,60 @@ namespace Microsoft.ML.Transforms
                 for (int i=0; i<columns.Length; i++)
                 {
                     OutputColNames[i] = columns[i].Name;
-                    OutputCols[i] = BuildOuputMetaData(parent._session, columns[i].Name);
-                    TfColInfo[i] = BuildTFInputMetaData(parent._session, columns[i].Source);
+                    OutputCols[i] = BuildOuputMetaData(parent._session, parent._batchSize, columns[i].Name);
+                    TfColInfo[i] = BuildTFInputMetaData(parent._session, parent._batchSize, columns[i].Source);
                 }
             }
 
-            private ColumnType BuildOuputMetaData(TFSession tfSession, string columnName)
+            public Bindings(ModelLoadContext ctx, ISchema schema, TensorflowTransform parent)
+                :base(ctx, schema, TestTypes)
+            {
+
+                int size = ctx.Reader.ReadInt32();
+
+                OutputCols = new ColumnType[size];
+                OutputColNames = new string[size];
+                TfColInfo = new TFColInfo[size];
+                for (int i=0;i< size; i++)
+                {
+                    var numCol = ctx.Reader.ReadInt32();
+                    string[] source = new string[numCol];
+                    for(int j=0;j<source.Length;j++)
+                    {
+                        source[j] = ctx.Reader.ReadString();
+                    }
+                    TfColInfo[i] = BuildTFInputMetaData(parent._session, parent._batchSize, source);
+                }
+
+                for (int i = 0; i < size; i++)
+                {
+                    var colName = ctx.Reader.ReadString();
+                    OutputColNames[i] = colName;
+                    OutputCols[i] = BuildOuputMetaData(parent._session, parent._batchSize, colName);
+                }
+            }
+
+            public override void Save(ModelSaveContext ctx)
+            {
+                base.Save(ctx);
+
+                ctx.Writer.Write(TfColInfo.Length);
+                foreach (var colInfo in TfColInfo)
+                {
+                    ctx.Writer.Write(colInfo.InputColNames.Length);
+                    foreach (var colName in colInfo.InputColNames)
+                    {
+                        ctx.Writer.Write(colName);
+                    }
+                }
+
+                foreach (var colName in OutputColNames)
+                {
+                    ctx.Writer.Write(colName);
+                }
+            }
+
+            private ColumnType BuildOuputMetaData(TFSession tfSession, int batchSize, string columnName)
             {
                 var tfoutput = new TFOutput(tfSession.Graph[columnName]);
                 var shape = tfSession.Graph.GetTensorShape(tfoutput);
@@ -97,31 +152,32 @@ namespace Microsoft.ML.Transforms
                 int[] dims = new int[shape.NumDimensions];
                 for (int k = 0; k < shape.NumDimensions; k++)
                 {
-                    dims[k] = (int)(shape[k] == -1 ? BatchSize : shape[k]);
+                    dims[k] = (int)(shape[k] == -1 ? batchSize : shape[k]);
                 }
                 // Output tensor is expected to be of shape [Batch, Data]
                return new VectorType(PrimitiveType.FromKind(DataKind.R4), dims);
             }
 
-            private TFColInfo BuildTFInputMetaData(TFSession tfSession, string[] source)
+            private TFColInfo BuildTFInputMetaData(TFSession tfSession, int batchSize, string[] source)
             {
                 var tfShapes = new TFShape[source.Length];
                 var tfTypes = new TFDataType[source.Length];
+                var colNames = new string[source.Length];
                 for (int j = 0; j < source.Length; j++)
                 {
-                    var inputColName = source[j];
-                    var tfoutput = new TFOutput(tfSession.Graph[inputColName]);
+                    colNames[j] = source[j];
+                    var tfoutput = new TFOutput(tfSession.Graph[colNames[j]]);
                     tfShapes[j] = tfSession.Graph.GetTensorShape(tfoutput);
                     tfTypes[j] = tfoutput.OutputType;
 
                     var l = new long[tfShapes[j].NumDimensions];
                     for (int ishape = 0; ishape < tfShapes[j].NumDimensions; ishape++)
                     {
-                        l[ishape] = tfShapes[j][ishape] == -1 ? BatchSize : tfShapes[j][ishape];
+                        l[ishape] = tfShapes[j][ishape] == -1 ? batchSize : tfShapes[j][ishape];
                     }
                     tfShapes[j] = new TFShape(l);
                 }
-                return new TFColInfo(tfShapes, tfTypes);
+                return new TFColInfo(colNames, tfShapes, tfTypes);
             }
 
             protected override ColumnType GetColumnTypeCore(int iinfo)
@@ -139,7 +195,7 @@ namespace Microsoft.ML.Transforms
         }
 
         public const string Summary = "Transforms the data using the tenorflow model.";
-        public const string UserName = "Tensorflow Transform";
+        public const string UserName = "TensorflowTransform";
         public const string ShortName = "TFTransform";
 
         public const string LoaderSignature = "TFTransform";
@@ -147,7 +203,7 @@ namespace Microsoft.ML.Transforms
         private static VersionInfo GetVersionInfo()
         {
             return new VersionInfo(
-                modelSignature: "TFTRANSFORM",
+                modelSignature: "TENSFLOW",
                 verWrittenCur: 0x00010001, // Initial
                 verReadableCur: 0x00010001,
                 verWeCanReadBack: 0x00010001,
@@ -161,29 +217,24 @@ namespace Microsoft.ML.Transforms
         /// </summary>
         private TFSession _session;
 
-        /// <summary>
-        /// Tensorflow saves model with 'serve' tag when it is intended for serving.
-        /// </summary>
-        private const string ServingTag = "serve";
-
         public override ISchema Schema => _bindings;
 
         /// <summary>
         ///  First dimension in each tensor is a batch dimension.
         ///  Currently setting it to 1.
         /// </summary>
-        private const int BatchSize = 1;
+        private readonly int _batchSize;
 
         /// <summary>
         /// Convenience constructor for public facing API.
         /// </summary>
         /// <param name="env">Host Environment.</param>
         /// <param name="input">Input <see cref="IDataView"/>. This is the output from previous transform or loader.</param>
-        /// <param name="modelDir">Directory where the tensorflow model is saved.</param>
+        /// <param name="modelFile">This is the frozen model file. https://www.tensorflow.org/mobile/prepare_models </param>
         /// <param name="name">Name of the output column. Keep it same as in the Tensorflow model.</param>
         /// <param name="source">Name of the input column(s). Keep it same as in the Tensorflow model.</param>
-        public TensorflowTransform(IHostEnvironment env, IDataView input, string modelDir, string name, params string[] source)
-            : this(env, new Arguments() { Column = new[] { new Column() { Source = source, Name = name } }, ModelDir = modelDir }, input)
+        public TensorflowTransform(IHostEnvironment env, IDataView input, string modelFile, string name, params string[] source)
+            : this(env, new Arguments() { Column = new[] { new Column() { Source = source, Name = name } }, ModelFile = modelFile }, input)
         {
         }
 
@@ -195,54 +246,63 @@ namespace Microsoft.ML.Transforms
             for (int i = 0; i < args.Column.Length; i++)
                 Host.CheckUserArg(Utils.Size(args.Column[i].Source) > 0, nameof(args.Column));
 
-            _session = LoadTFSession(args.ModelDir);
+            _batchSize = args.BatchSize;
+            _session = LoadTFSession(args.ModelFile);
             _bindings = new Bindings(args.Column, Source.Schema, this);
         }
 
-        private TFSession LoadTFSession(string modelDir)
+        private TensorflowTransform(IHost host, ModelLoadContext ctx, IDataView input)
+           : base(host, input)
         {
-            var sessionOptions = new TFSessionOptions();
-            var runOptions = new TFBuffer();
-            var graph = new TFGraph();
-            var metaGraphDef = new TFBuffer();
-            var status = new TFStatus();
+            Host.AssertValue(ctx);
 
-            return new TFSession().FromSavedModel(
-                    sessionOptions,
-                    runOptions,
-                    modelDir,
-                    new[] { ServingTag },
-                    graph,
-                    metaGraphDef);
-        }
+            _batchSize = ctx.Reader.ReadInt32();
 
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        ~TensorflowTransform()
-        {
-            Dispose(false);
-        }
-
-        public void Dispose(bool disposing)
-        {
-            if (disposing)
+            byte[] data = null;
+            ctx.TryLoadBinaryStream("TFModel", r =>
             {
-                if (_session != null)
-                {
-                    _session.CloseSession();
-                    _session.DeleteSession();
-                }
-                _session = null;
-            }
+                data = r.ReadByteArray();
+            });
+
+            var graph = new TFGraph();
+            graph.Import(data);
+            _session = new TFSession(graph);
+            _bindings = new Bindings(ctx, Source.Schema, this);
+        }
+
+        public static TensorflowTransform Create(IHostEnvironment env, ModelLoadContext ctx, IDataView input)
+        {
+            Contracts.CheckValue(env, nameof(env));
+            var h = env.Register(RegistrationName);
+            h.CheckValue(ctx, nameof(ctx));
+            h.CheckValue(input, nameof(input));
+            ctx.CheckAtModel(GetVersionInfo());
+            return h.Apply("Loading Model", ch => new TensorflowTransform(h, ctx, input));
+        }
+
+        private TFSession LoadTFSession(string modelFile)
+        {
+            var graph = new TFGraph();
+            graph.Import(File.ReadAllBytes(modelFile), "");
+            return new TFSession(graph);
         }
 
         public override void Save(ModelSaveContext ctx)
         {
-            throw new NotImplementedException();
+            Host.AssertValue(ctx);
+            ctx.CheckAtModel();
+            ctx.SetVersionInfo(GetVersionInfo());
+
+            ctx.Writer.Write(_batchSize);
+
+            var buffer = new TFBuffer();
+            _session.Graph.ToGraphDef(buffer);
+
+            ctx.SaveBinaryStream("TFModel", w =>
+            {
+                w.WriteByteArray(buffer.ToArray());
+            });
+            _bindings.Save(ctx);
         }
 
         private ValueGetter<T> GetSrcGetter<T>(IRow input, int iinfo, int isrc)
@@ -280,7 +340,7 @@ namespace Microsoft.ML.Transforms
                     var runner = _session.GetRunner();
                     for (int i = 0; i < info.SrcIndices.Length; i++)
                     {
-                        var inputName = input.Schema.GetColumnName(info.SrcIndices[i]);
+                        var inputName = tfInfo.InputColNames[i];
                         var type = info.SrcTypes[i];
                         if (type.IsVector)
                         {
