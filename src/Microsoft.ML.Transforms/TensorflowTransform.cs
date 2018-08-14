@@ -15,7 +15,7 @@ using Microsoft.ML.Runtime.EntryPoints;
 using Microsoft.ML.Runtime.Internal.Utilities;
 using Microsoft.ML.Runtime.Model;
 using Microsoft.ML.Transforms;
-using TensorFlow;
+using Microsoft.ML.Transforms.TensorFlow;
 
 [assembly: LoadableClass(TensorflowTransform.Summary, typeof(TensorflowTransform), typeof(TensorflowTransform.Arguments), typeof(SignatureDataTransform),
     TensorflowTransform.UserName, TensorflowTransform.ShortName)]

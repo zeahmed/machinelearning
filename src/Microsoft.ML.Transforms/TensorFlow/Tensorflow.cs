@@ -32,7 +32,7 @@ using System.Linq.Expressions;
 #pragma warning disable MSML_PrivateFieldName
 #pragma warning disable MSML_ParameterLocalVarName
 
-namespace TensorFlow
+namespace Microsoft.ML.Transforms.TensorFlow
 {
 	internal static partial class NativeBinding
 	{
@@ -45,7 +45,7 @@ namespace TensorFlow
 	/// <summary>
 	/// Contains TensorFlow fundamental methods and utility functions.
 	/// </summary>
-	public static class TFCore
+	internal static class TFCore
 	{
 		internal static bool UseCPU = true;
 
@@ -122,7 +122,7 @@ namespace TensorFlow
 	/// override the NativeDispose method (internal) to release the associated resource.
 	/// </para>
 	/// </remarks>
-	public abstract class TFDisposable : IDisposable
+	internal abstract class TFDisposable : IDisposable
 	{
 		internal IntPtr handle;
 
@@ -205,7 +205,7 @@ namespace TensorFlow
 	/// so the release methods are suitable to be invoked from the Finalizer thread, in
 	/// those scenarios, subclass from this class rather than the TFDisposable class.
 	/// </remarks>
-	public abstract class TFDisposableThreadSafe  : TFDisposable {
+	internal abstract class TFDisposableThreadSafe  : TFDisposable {
 		/// <summary>
 		/// Initializes a new instance of the <see cref="T:TensorFlow.TFDisposable"/> class
 		/// from the handle that it will wrap.
@@ -236,7 +236,7 @@ namespace TensorFlow
 	/// <summary>
 	/// TensorFlow Exception
 	/// </summary>
-	public class TFException : Exception {
+	internal class TFException : Exception {
 		/// <summary>
 		/// Initializes a new instance of the <see cref="T:TensorFlow.TFException"/> class with a message.
 		/// </summary>
@@ -262,7 +262,7 @@ namespace TensorFlow
 	/// operation did not succeed.
 	/// </para>
 	/// </remarks>
-	public class TFStatus : TFDisposable
+	internal class TFStatus : TFDisposable
 	{
 		// extern TF_Status * TF_NewStatus ();
 		[DllImport (NativeBinding.TensorFlowLibrary)]
@@ -406,7 +406,7 @@ namespace TensorFlow
 	/// <summary>
 	/// The session options object holds configuration options that you want to use during your session, like the TensorFlow target or the configuration.
 	/// </summary>
-	public class TFSessionOptions : TFDisposable
+	internal class TFSessionOptions : TFDisposable
 	{
 		// extern TF_SessionOptions * TF_NewSessionOptions ();
 		[DllImport (NativeBinding.TensorFlowLibrary)]
@@ -487,7 +487,7 @@ namespace TensorFlow
 	/// "hot", and add a "sub" operation there the result will be "demo/hot/sub".
 	/// </para>
 	/// </remarks>
-	public partial class TFGraph : TFDisposableThreadSafe
+	internal partial class TFGraph : TFDisposableThreadSafe
 	{
 		// extern TF_Graph * TF_NewGraph ();
 		[DllImport (NativeBinding.TensorFlowLibrary)]
@@ -697,7 +697,7 @@ namespace TensorFlow
     /// <see cref="T:Tensorflow.TFGraph"/>, but they can also be constructed
     /// manually using the low-level <see cref="T:Tensorflow.TFOperationDesc"/> API.
     /// </remarks>
-    public partial class TFOperation
+    internal partial class TFOperation
 	{
 		internal IntPtr handle;
 
@@ -730,7 +730,7 @@ namespace TensorFlow
 	/// <summary>
 	/// Device type
 	/// </summary>
-	public enum DeviceType
+	internal enum DeviceType
 	{
 		/// <summary>
 		/// The device is the Central Processing Unit (CPU)
@@ -751,7 +751,7 @@ namespace TensorFlow
 	/// <summary>
 	/// Describes the device attributes
 	/// </summary>
-	public class DeviceAttributes
+	internal class DeviceAttributes
 	{
 		internal DeviceAttributes (string name, DeviceType deviceType, long memoryLimitBytes)
 		{
@@ -781,7 +781,7 @@ namespace TensorFlow
 	/// <summary>
 	/// Contains options that are used to control how graph importing works.
 	/// </summary>
-	public class TFImportGraphDefOptions : TFDisposable
+	internal class TFImportGraphDefOptions : TFDisposable
 	{
 		// extern TF_ImportGraphDefOptions * TF_NewImportGraphDefOptions ();
 		[DllImport (NativeBinding.TensorFlowLibrary)]
@@ -970,7 +970,7 @@ namespace TensorFlow
 	/// be kept in sync.
 	/// </para>
 	/// </remarks>
-	public class TFSession : TFDisposableThreadSafe
+	internal class TFSession : TFDisposableThreadSafe
 	{
 		// extern TF_Session * TF_NewSession (TF_Graph *graph, const TF_SessionOptions *opts, TF_Status *status);
 		[DllImport (NativeBinding.TensorFlowLibrary)]
@@ -1211,6 +1211,8 @@ namespace TensorFlow
                 inputValues = new List<TFTensor>();
                 targets = new List<TFOperation>();
 				this.session = session;
+                RunMetadata = null;
+                RunOptions = null;
 			}
 
 			/// <summary>
@@ -1462,7 +1464,7 @@ namespace TensorFlow
 	/// Tensors have uniform data types, all the elements of the tensor are of this
 	/// type and they dictate how TensorFlow will treat the data stored.
 	/// </remarks>
-	public enum TFDataType : uint
+	internal enum TFDataType : uint
 	{
 		/// <summary>
 		/// The TFDataType has not been set
@@ -1575,7 +1577,7 @@ namespace TensorFlow
 	/// <summary>
 	/// Status code for invoking a tensorflow operation.
 	/// </summary>
-	public enum TFCode : uint
+	internal enum TFCode : uint
 	{
 		/// <summary>
 		/// Not an error; returned on success
@@ -1729,7 +1731,7 @@ namespace TensorFlow
 	/// Represents a specific input of an operation.
 	/// </summary>
 	[StructLayout (LayoutKind.Sequential)]
-	public struct TFInput
+	internal struct TFInput
 	{
 		/// <summary>
 		/// The operation that this input is for
@@ -1774,7 +1776,7 @@ namespace TensorFlow
 	/// </para>
 	/// </remarks>
 	[StructLayout (LayoutKind.Sequential)]
-	public struct TFOutput
+	internal struct TFOutput
 	{
 		private unsafe TF_Operation LLOperation;
 
@@ -1876,7 +1878,7 @@ namespace TensorFlow
 	/// <summary>
 	/// Low-level: Enumeration describing the types of a metadata attribute
 	/// </summary>
-	public enum TFAttributeType : uint
+	internal enum TFAttributeType : uint
 	{
 		/// <summary>
 		/// The type of the attribute is a string
@@ -1933,7 +1935,7 @@ namespace TensorFlow
 	/// bindings in the <see cref="T:TensorFlow.TFGraph"/> type.
 	/// </remarks>
 	[StructLayout (LayoutKind.Sequential)]
-	public struct TFAttributeMetadata
+	internal struct TFAttributeMetadata
 	{
 		private byte isList;
 		public bool IsList => isList != 0;
@@ -1983,7 +1985,7 @@ namespace TensorFlow
 	/// var batch = new TFShape (-1, 4)
 	/// </para>
 	/// </remarks>
-	public class TFShape
+	internal class TFShape
 	{
 		/// <summary>
 		/// Represents an unknown number of dimensions in the tensor.

@@ -10,7 +10,7 @@ using size_t = System.UIntPtr;
 #pragma warning disable MSML_GeneralName
 #pragma warning disable MSML_ParameterLocalVarName
 
-namespace TensorFlow
+namespace Microsoft.ML.Transforms.TensorFlow
 {
 	/// <summary>
 	/// This attribute can be applied to callback functions that will be invoked
@@ -22,7 +22,7 @@ namespace TensorFlow
 	/// internal static void MyFreeFunc (IntPtr data, IntPtr length){..}
 	/// </code>
 	/// </remarks>
-	public sealed class MonoPInvokeCallbackAttribute : Attribute
+	internal sealed class MonoPInvokeCallbackAttribute : Attribute
 	{
 		/// <summary>
 		/// Use this constructor to annotate the type of the callback function that
@@ -63,7 +63,7 @@ namespace TensorFlow
 	/// </remarks>
 	// TODO: the string ctor
 	// TODO: perhaps we should have an implicit byte [] conversion that just calls ToArray?
-	public class TFBuffer : TFDisposable
+	internal class TFBuffer : TFDisposable
 	{
 		// extern TF_Buffer * TF_NewBufferFromString (const void *proto, size_t proto_len);
 		[DllImport (NativeBinding.TensorFlowLibrary)]

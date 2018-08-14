@@ -14,7 +14,7 @@ using TF_Tensor = System.IntPtr;
 
 #pragma warning disable MSML_ParameterLocalVarName
 
-namespace TensorFlow
+namespace Microsoft.ML.Transforms.TensorFlow
 {
 
 	/// <summary>
@@ -60,7 +60,7 @@ namespace TensorFlow
 	/// </code>
 	/// </example>
 	/// </remarks>
-	public class TFTensor : TFDisposableThreadSafe
+	internal class TFTensor : TFDisposableThreadSafe
 	{
 		/// <summary>
 		/// Signature that methods must conform to to be used to release memory that was passed to a manually allocated TFTensor
