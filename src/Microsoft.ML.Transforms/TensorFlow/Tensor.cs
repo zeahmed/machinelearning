@@ -60,7 +60,7 @@ namespace Microsoft.ML.Transforms.TensorFlow
 	/// </code>
 	/// </example>
 	/// </remarks>
-	internal class TFTensor : TFDisposableThreadSafe
+	internal partial class TFTensor : TFDisposableThreadSafe
 	{
 		/// <summary>
 		/// Signature that methods must conform to to be used to release memory that was passed to a manually allocated TFTensor
