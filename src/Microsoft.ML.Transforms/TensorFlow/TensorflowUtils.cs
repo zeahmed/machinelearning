@@ -19,7 +19,7 @@ using Microsoft.ML.Transforms.TensorFlow;
 
 namespace Microsoft.ML.Transforms.TensorFlow
 {
-    public class TensorflowUtils
+    internal partial class TensorflowUtils
     {
         internal static DataKind Tf2MlNetType(TFDataType type)
         {
@@ -46,59 +46,23 @@ namespace Microsoft.ML.Transforms.TensorFlow
             }
         }
 
-        internal static TFDataType MlNet2TfType(Type type)
-        {
-            if (type == typeof(float))
-            {
-                return TFDataType.Float;
-            }
-
-            if (type == typeof(double))
-            {
-                return TFDataType.Double;
-            }
-
-            if (type == typeof(int))
-            {
-                return TFDataType.Int32;
-            }
-
-            if (type == typeof(Int64))
-            {
-                return TFDataType.Int64;
-            }
-
-            if (type == typeof(uint))
-            {
-                return TFDataType.UInt32;
-            }
-
-            if (type == typeof(UInt64))
-            {
-                return TFDataType.UInt64;
-            }
-
-            if (type == typeof(bool))
-            {
-                return TFDataType.Bool;
-            }
-
-            if (type == typeof(string))
-            {
-                return TFDataType.String;
-            }
-
-            return TFDataType.Unknown;
-        }
-
         internal static bool IsTypeSupportedInTf(ColumnType type)
         {
-            if(type.IsVector)
+            try
             {
-                return MlNet2TfType(type.ItemType.RawType) != TFDataType.Unknown;
-            }
+                if (type.IsVector)
+                {
+                    TFTensor.TensorTypeFromType(type.ItemType.RawType);
+                    return true;
+                }
 
-            return MlNet2TfType(type.RawType) != TFDataType.Unknown;
+                TFTensor.TensorTypeFromType(type.RawType);
+                return true;
+            }
+           catch (ArgumentOutOfRangeException)
+            {
+                return false;
+            }
         }
 
         public static unsafe T[] FetchData<T>(IntPtr data, int size)
