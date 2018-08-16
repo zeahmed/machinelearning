@@ -22,7 +22,8 @@ namespace Microsoft.ML.Transforms.TensorFlow
         /// </summary>
         /// <typeparam name="T">.NET type of tensor to create</typeparam>
         /// <param name="data">value of tensor</param>
-        public static TFTensor Create<T>(T data)
+        /// <param name="shape">shape of tensor. Only valid when passing in arrays.</param>
+        public static TFTensor Create<T>(T data, TFShape shape = null)
         {
 <# foreach (TypeConfiguration type in typeConfiguration) { #>
             <#=GenerateIfStatementHeader(type)#>
@@ -34,11 +35,14 @@ namespace Microsoft.ML.Transforms.TensorFlow
             // We should investigate the code gen differences and add them if they are more efficient.
             else if (typeof(T).IsArray)
             {
+                if (shape == null)
+                    throw new ArgumentNullException("shape");
+
                 var elementType = typeof(T).GetElementType();
 <# foreach (TypeConfiguration type in typeConfiguration) { #>
                 <#=GenerateIfStatementHeader(type, "elementType")#>
                 {
-                    return new TFTensor(SetupTensor(TFDataType.<#=type.TFDataType#>, (Array)(object)data, <#=type.Size#>));
+                    return new TFTensor(SetupTensor(TFDataType.<#=type.TFDataType#>, shape, (Array)(object)data, 0, ((Array)(object)data).Length, <#=type.Size#>));
                 }
 <# } #>
                 // note that we will get here for jagged arrays, which is intententional since we'd need to copy them.

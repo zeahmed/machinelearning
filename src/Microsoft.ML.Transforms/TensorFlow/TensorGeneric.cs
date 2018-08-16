@@ -15,7 +15,8 @@ namespace Microsoft.ML.Transforms.TensorFlow
         /// </summary>
         /// <typeparam name="T">.NET type of tensor to create</typeparam>
         /// <param name="data">value of tensor</param>
-        public static TFTensor Create<T>(T data)
+        /// <param name="shape">shape of tensor. Only valid when passing in arrays.</param>
+        public static TFTensor Create<T>(T data, TFShape shape = null)
         {
             if (typeof(T) == typeof(System.Boolean))
             {
@@ -73,58 +74,61 @@ namespace Microsoft.ML.Transforms.TensorFlow
             // We should investigate the code gen differences and add them if they are more efficient.
             else if (typeof(T).IsArray)
             {
+                if (shape == null)
+                    throw new ArgumentNullException("shape");
+
                 var elementType = typeof(T).GetElementType();
                 if (elementType == typeof(System.Boolean))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.Bool, (Array)(object)data, 4));
+                    return new TFTensor(SetupTensor(TFDataType.Bool, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 4));
                 }
                 else if (elementType == typeof(System.Byte))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.UInt8, (Array)(object)data, 1));
+                    return new TFTensor(SetupTensor(TFDataType.UInt8, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 1));
                 }
                 else if (elementType == typeof(System.Char))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.UInt8, (Array)(object)data, 1));
+                    return new TFTensor(SetupTensor(TFDataType.UInt8, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 1));
                 }
                 else if (elementType == typeof(System.Numerics.Complex))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.Complex128, (Array)(object)data, 16));
+                    return new TFTensor(SetupTensor(TFDataType.Complex128, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 16));
                 }
                 else if (elementType == typeof(System.Double))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.Double, (Array)(object)data, 8));
+                    return new TFTensor(SetupTensor(TFDataType.Double, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 8));
                 }
                 else if (elementType == typeof(System.Single))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.Float, (Array)(object)data, 4));
+                    return new TFTensor(SetupTensor(TFDataType.Float, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 4));
                 }
                 else if (elementType == typeof(System.Int32))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.Int32, (Array)(object)data, 4));
+                    return new TFTensor(SetupTensor(TFDataType.Int32, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 4));
                 }
                 else if (elementType == typeof(System.Int64))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.Int64, (Array)(object)data, 8));
+                    return new TFTensor(SetupTensor(TFDataType.Int64, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 8));
                 }
                 else if (elementType == typeof(System.SByte))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.Int8, (Array)(object)data, 1));
+                    return new TFTensor(SetupTensor(TFDataType.Int8, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 1));
                 }
                 else if (elementType == typeof(System.Int16))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.Int16, (Array)(object)data, 2));
+                    return new TFTensor(SetupTensor(TFDataType.Int16, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 2));
                 }
                 else if (elementType == typeof(System.UInt32))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.UInt32, (Array)(object)data, 4));
+                    return new TFTensor(SetupTensor(TFDataType.UInt32, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 4));
                 }
                 else if (elementType == typeof(System.UInt64))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.UInt64, (Array)(object)data, 8));
+                    return new TFTensor(SetupTensor(TFDataType.UInt64, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 8));
                 }
                 else if (elementType == typeof(System.UInt16))
                 {
-                    return new TFTensor(SetupTensor(TFDataType.UInt16, (Array)(object)data, 2));
+                    return new TFTensor(SetupTensor(TFDataType.UInt16, shape, (Array)(object)data, 0, ((Array)(object)data).Length, 2));
                 }
                 // note that we will get here for jagged arrays, which is intententional since we'd need to copy them.
                 throw new NotSupportedException($"Unsupported element type {elementType}");

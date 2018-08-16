@@ -307,6 +307,12 @@ namespace Microsoft.ML.Transforms
             _bindings = new Bindings(ctx, Source.Schema, this);
         }
 
+        ~TensorflowTransform()
+        {
+            _session.CloseSession();
+            _session.DeleteSession();
+        }
+
         public static TensorflowTransform Create(IHostEnvironment env, ModelLoadContext ctx, IDataView input)
         {
             Contracts.CheckValue(env, nameof(env));
@@ -430,44 +436,32 @@ namespace Microsoft.ML.Transforms
 
             if (tfType == TFDataType.Float)
             {
-                Func<IRow, int, ValueGetter<VBuffer<float>>> srcDel = MakeGetter<float>;
-                var meth = srcDel.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(outInfo.ItemType.RawType);
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
+                return Utils.MarshalInvoke(MakeGetter<float>, outInfo.ItemType.RawType, input, iinfo);
             }
 
             if (tfType == TFDataType.Double)
             {
-                Func<IRow, int, ValueGetter<VBuffer<double>>> srcDel = MakeGetter<double>;
-                var meth = srcDel.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(outInfo.ItemType.RawType);
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
+                return Utils.MarshalInvoke(MakeGetter<double>, outInfo.ItemType.RawType, input, iinfo);
             }
 
             if (tfType == TFDataType.Int32)
             {
-                Func<IRow, int, ValueGetter<VBuffer<DvInt4>>> srcDel = MakeGetter<DvInt4>;
-                var meth = srcDel.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(outInfo.ItemType.RawType);
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
+                return Utils.MarshalInvoke(MakeGetter<int>, outInfo.ItemType.RawType, input, iinfo);
             }
 
             if (tfType == TFDataType.Int64)
             {
-                Func<IRow, int, ValueGetter<VBuffer<Int64>>> srcDel = MakeGetter<Int64>;
-                var meth = srcDel.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(outInfo.ItemType.RawType);
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
+                return Utils.MarshalInvoke(MakeGetter<Int64>, outInfo.ItemType.RawType, input, iinfo);
             }
 
             if (tfType == TFDataType.Bool)
             {
-                Func<IRow, int, ValueGetter<VBuffer<bool>>> srcDel = MakeGetter<bool>;
-                var meth = srcDel.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(outInfo.ItemType.RawType);
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
+                return Utils.MarshalInvoke(MakeGetter<bool>, outInfo.ItemType.RawType, input, iinfo);
             }
 
             if (tfType == TFDataType.String)
             {
-                Func<IRow, int, ValueGetter<VBuffer<string>>> srcDel = MakeGetter<string>;
-                var meth = srcDel.GetMethodInfo().GetGenericMethodDefinition().MakeGenericMethod(outInfo.ItemType.RawType);
-                return (Delegate)meth.Invoke(this, new object[] { input, iinfo });
+                return Utils.MarshalInvoke(MakeGetter<string>, outInfo.ItemType.RawType, input, iinfo);
             }
 
             throw Host.ExceptNotSupp("Tensorflow type not supported");
@@ -580,47 +574,37 @@ namespace Microsoft.ML.Transforms
         private class TensorValueGetter<T> : ITensorValueGetter
         {
             private readonly ValueGetter<T> _srcgetter;
-            private readonly ColumnType _type;
-            private readonly ConstructorInfo _ctor;
 
             public TensorValueGetter(IRow input, int colIndex)
             {
                 _srcgetter = input.GetGetter<T>(colIndex);
-                _type = input.Schema.GetColumnType(colIndex);
-                _ctor = typeof(TFTensor).GetConstructor(new[] { typeof(T) });
             }
             public TFTensor GetTensor()
             {
                 var scalar = default(T);
                 _srcgetter(ref scalar);
-                return (TFTensor)_ctor.Invoke(null, new object[] { scalar });
+                return TFTensor.Create(scalar);
             }
         }
 
         private class TensorValueGetterVec<T> : ITensorValueGetter
         {
             private readonly ValueGetter<VBuffer<T>> _srcgetter;
-            private readonly ColumnType _type;
             private readonly TFShape _tfShape;
-            private readonly MethodInfo _method;
+            private VBuffer<T> _vBuffer;
+            private VBuffer<T> _vBufferDense;
             public TensorValueGetterVec(IRow input, int colIndex, TFShape tfShape)
             {
                 _srcgetter = input.GetGetter<VBuffer<T>>(colIndex);
-                _type = input.Schema.GetColumnType(colIndex);
                 _tfShape = tfShape;
-                _method = typeof(TFTensor).GetMethod("FromBuffer",
-                        BindingFlags.Public | BindingFlags.Static,
-                        Type.DefaultBinder,
-                        new[] { typeof(TFShape), typeof(T[]), typeof(int), typeof(int) },
-                        null);
+                _vBuffer = default;
+                _vBufferDense = default;
             }
             public TFTensor GetTensor()
             {
-                var tmpBuf = default(VBuffer<T>);
-                _srcgetter(ref tmpBuf);
-                var dense = default(VBuffer<T>);
-                tmpBuf.CopyToDense(ref dense);
-                return (TFTensor)_method.Invoke(null, new object[] { _tfShape, dense.Values, 0, dense.Length });
+                _srcgetter(ref _vBuffer);
+                _vBuffer.CopyToDense(ref _vBufferDense);
+                return TFTensor.Create(_vBufferDense.Values, _tfShape);
             }
         }
 
