@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -147,40 +148,6 @@ namespace Microsoft.ML.Transforms
                 }
             }
 
-            private static DataKind Tf2MlNetType(TFDataType type)
-            {
-                if(type == TFDataType.Float)
-                {
-                    return DataKind.R4;
-                }
-
-                if (type == TFDataType.Double)
-                {
-                    return DataKind.R8;
-                }
-
-                if (type == TFDataType.Int32)
-                {
-                    return DataKind.I4;
-                }
-
-                if (type == TFDataType.Int64)
-                {
-                    return DataKind.I8;
-                }
-
-                if (type == TFDataType.Bool)
-                {
-                    return DataKind.Bool;
-                }
-
-                if (type == TFDataType.String)
-                {
-                    return DataKind.TX;
-                }
-
-                throw new NotSupportedException("Tensorflow type not supported.");
-            }
             private (ColumnType, TFDataType) BuildOuputMetaData(TFSession tfSession, int batchSize, string columnName)
             {
                 var tfoutput = new TFOutput(tfSession.Graph[columnName]);
@@ -191,7 +158,7 @@ namespace Microsoft.ML.Transforms
                 {
                     dims[k] = (int)(shape[k] == -1 ? batchSize : shape[k]);
                 }
-                var kind = Tf2MlNetType(tfoutput.OutputType);
+                var kind = TensorflowUtils.Tf2MlNetType(tfoutput.OutputType);
                return (new VectorType(PrimitiveType.FromKind(kind), dims), tfoutput.OutputType);
             }
 
@@ -227,6 +194,13 @@ namespace Microsoft.ML.Transforms
 
             private static string TestTypes(ColumnType[] types)
             {
+                Contracts.AssertNonEmpty(types);
+                if (!types.All(t => t.IsVector))
+                    return "All source columns must be of vector type";
+
+                if (!types.All(t => TensorflowUtils.IsTypeSupportedInTf(t)))
+                    return "One of the input types is not supported in Tensorflow";
+
                 return null;
             }
         }
@@ -252,7 +226,7 @@ namespace Microsoft.ML.Transforms
         /// <summary>
         /// Tensorflow session object
         /// </summary>
-        private TFSession _session;
+        private readonly TFSession _session;
 
         public override ISchema Schema => _bindings;
 
@@ -267,7 +241,7 @@ namespace Microsoft.ML.Transforms
         /// </summary>
         /// <param name="env">Host Environment.</param>
         /// <param name="input">Input <see cref="IDataView"/>. This is the output from previous transform or loader.</param>
-        /// <param name="modelFile">This is the frozen model file. https://www.tensorflow.org/mobile/prepare_models </param>
+        /// <param name="modelFile">This is the frozen tensorflow model file. https://www.tensorflow.org/mobile/prepare_models </param>
         /// <param name="name">Name of the output column. Keep it same as in the Tensorflow model.</param>
         /// <param name="source">Name of the input column(s). Keep it same as in the Tensorflow model.</param>
         public TensorflowTransform(IHostEnvironment env, IDataView input, string modelFile, string name, params string[] source)
@@ -280,8 +254,11 @@ namespace Microsoft.ML.Transforms
         {
             Host.CheckValue(args, nameof(args));
             Host.CheckUserArg(Utils.Size(args.Column) > 0, nameof(args.Column));
+            Host.CheckUserArg(args.BatchSize > 0, nameof(args.BatchSize));
             for (int i = 0; i < args.Column.Length; i++)
                 Host.CheckUserArg(Utils.Size(args.Column[i].Source) > 0, nameof(args.Column));
+            Host.CheckNonWhiteSpace(args.ModelFile, nameof(args.ModelFile));
+            Host.CheckUserArg(File.Exists(args.ModelFile), nameof(args.ModelFile));
 
             _batchSize = args.BatchSize;
             _session = LoadTFSession(args.ModelFile);
@@ -294,23 +271,34 @@ namespace Microsoft.ML.Transforms
             Host.AssertValue(ctx);
 
             _batchSize = ctx.Reader.ReadInt32();
+#pragma warning disable MSML_NoMessagesForLoadContext
+            Host.CheckDecode(_batchSize > 0, "BatchSize must be positive.");
+#pragma warning restore MSML_NoMessagesForLoadContext
 
             byte[] data = null;
-            ctx.TryLoadBinaryStream("TFModel", r =>
-            {
-                data = r.ReadByteArray();
-            });
+            if (!ctx.TryLoadBinaryStream("TFModel", r => data = r.ReadByteArray()))
+                throw Host.ExceptDecode();
 
             var graph = new TFGraph();
-            graph.Import(data);
-            _session = new TFSession(graph);
+            try
+            {
+                graph.Import(data);
+                _session = new TFSession(graph);
+            }
+            catch (Exception ex)
+            {
+#pragma warning disable MSML_NoMessagesForLoadContext
+                throw Host.ExceptDecode(ex, "Tensorflow exception triggered while loading model.");
+#pragma warning restore MSML_NoMessagesForLoadContext
+
+            }
             _bindings = new Bindings(ctx, Source.Schema, this);
         }
 
         ~TensorflowTransform()
         {
             _session.CloseSession();
-            _session.DeleteSession();
+            _session.Dispose();
         }
 
         public static TensorflowTransform Create(IHostEnvironment env, ModelLoadContext ctx, IDataView input)
@@ -326,7 +314,17 @@ namespace Microsoft.ML.Transforms
         private TFSession LoadTFSession(string modelFile)
         {
             var graph = new TFGraph();
-            graph.Import(File.ReadAllBytes(modelFile), "");
+            try
+            {
+                graph.Import(File.ReadAllBytes(modelFile), "");
+            }
+            catch (Exception ex)
+            {
+#pragma warning disable MSML_NoMessagesForLoadContext
+                throw Host.ExceptDecode(ex, "Tensorflow exception triggered while loading model.");
+#pragma warning restore MSML_NoMessagesForLoadContext
+
+            }
             return new TFSession(graph);
         }
 
@@ -367,36 +365,12 @@ namespace Microsoft.ML.Transforms
                 return new TensorValueGetter<T>(input, colIndex);
         }
 
-        private ITensorValueGetter CreateTensorValueGetterVec(IRow input, TFDataType tfType, ColumnType type, int colIndex, TFShape tfShape)
+        private ITensorValueGetter CreateTensorValueGetterVec(IRow input, TFDataType tfType, ColumnType columnType, int colIndex, TFShape tfShape)
         {
-            if(tfType == TFDataType.Float)
+            var type = TFTensor.TypeFromTensorType(tfType);
+            if (type != null)
             {
-                return CreateTensorValueGetter<float>(input, type, colIndex, tfShape);
-            }
-
-            if (tfType == TFDataType.Double)
-            {
-                return CreateTensorValueGetter<double>(input, type, colIndex, tfShape);
-            }
-
-            if (tfType == TFDataType.Int32)
-            {
-                return CreateTensorValueGetter<DvInt4>(input, type, colIndex, tfShape);
-            }
-
-            if (tfType == TFDataType.Int64)
-            {
-                return CreateTensorValueGetter<Int64>(input, type, colIndex, tfShape);
-            }
-
-            if (tfType == TFDataType.Bool)
-            {
-                return CreateTensorValueGetter<bool>(input, type, colIndex, tfShape);
-            }
-
-            if (tfType == TFDataType.String)
-            {
-                return CreateTensorValueGetter<string>(input, type, colIndex, tfShape);
+                return Utils.MarshalInvoke(CreateTensorValueGetter<int>, type, input, columnType, colIndex, tfShape);
             }
 
             throw Host.ExceptNotSupp("Tensorflow type not supported");
@@ -415,69 +389,30 @@ namespace Microsoft.ML.Transforms
             return srcTensorGetters;
         }
 
-        private unsafe T[] FetchData<T>(IntPtr data, int size)
-        {
-            var result = new T[size];
-
-            GCHandle handle = GCHandle.Alloc(result, GCHandleType.Pinned);
-            IntPtr target = handle.AddrOfPinnedObject();
-
-            Int64 sizeInBytes = size * Marshal.SizeOf((typeof(T)));
-            Buffer.MemoryCopy(data.ToPointer(), target.ToPointer(), sizeInBytes, sizeInBytes);
-            handle.Free();
-            return result;
-        }
-
         private Delegate MakeGetter(IRow input, int iinfo)
         {
             var info = _bindings.Infos[iinfo];
             var outInfo = _bindings.OutputCols[iinfo];
             var tfType = _bindings.OutputTFTypes[iinfo];
-
-            if (tfType == TFDataType.Float)
+            var type = TFTensor.TypeFromTensorType(tfType);
+            if (type != null)
             {
-                return Utils.MarshalInvoke(MakeGetter<float>, outInfo.ItemType.RawType, input, iinfo);
-            }
-
-            if (tfType == TFDataType.Double)
-            {
-                return Utils.MarshalInvoke(MakeGetter<double>, outInfo.ItemType.RawType, input, iinfo);
-            }
-
-            if (tfType == TFDataType.Int32)
-            {
-                return Utils.MarshalInvoke(MakeGetter<int>, outInfo.ItemType.RawType, input, iinfo);
-            }
-
-            if (tfType == TFDataType.Int64)
-            {
-                return Utils.MarshalInvoke(MakeGetter<Int64>, outInfo.ItemType.RawType, input, iinfo);
-            }
-
-            if (tfType == TFDataType.Bool)
-            {
-                return Utils.MarshalInvoke(MakeGetter<bool>, outInfo.ItemType.RawType, input, iinfo);
-            }
-
-            if (tfType == TFDataType.String)
-            {
-                return Utils.MarshalInvoke(MakeGetter<string>, outInfo.ItemType.RawType, input, iinfo);
+                return Utils.MarshalInvoke(MakeGetter<int>, outInfo.ItemType.RawType, input, iinfo, outInfo);
             }
 
             throw Host.ExceptNotSupp("Tensorflow type not supported");
         }
 
-        private ValueGetter<VBuffer<T>> MakeGetter<T>(IRow input, int iinfo)
+        private Delegate MakeGetter<T>(IRow input, int iinfo, ColumnType columnType)
         {
             Host.AssertValue(input);
-            // Need to check type here.
-            //Host.Assert(Infos[iinfo].TypeSrc.IsText);
+            Host.Assert(typeof(T) == columnType.ItemType.RawType);
 
             var info = _bindings.Infos[iinfo];
             var tfInfo = _bindings.TfColInfo[iinfo];
             var srcTensorGetters = GetTensorValueGetters(input, iinfo);
 
-            return (ref VBuffer<T> dst) =>
+            ValueGetter<VBuffer<T>> valuegetter = (ref VBuffer<T> dst) =>
                 {
                     var runner = _session.GetRunner();
                     for (int i = 0; i < info.SrcIndices.Length; i++)
@@ -491,9 +426,14 @@ namespace Microsoft.ML.Transforms
 
                     Contracts.Assert(tensors.Length > 0);
 
-                    var output = FetchData<T>(tensors[0].Data, _bindings.OutputCols[iinfo].VectorSize);
-                    dst = new VBuffer<T>(output.Length, output);
+                    var values = dst.Values;
+                    if (Utils.Size(values) != _bindings.OutputCols[iinfo].VectorSize)
+                        values = new T[_bindings.OutputCols[iinfo].VectorSize];
+
+                    TensorflowUtils.FetchData<T>(tensors[0].Data, values);
+                    dst = new VBuffer<T>(values.Length, values);
                 };
+            return valuegetter;
         }
 
         protected override Func<int, bool> GetDependenciesCore(Func<int, bool> predicate)

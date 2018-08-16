@@ -16,14 +16,11 @@ namespace Microsoft.ML.Transforms.TensorFlow
     {
         /// <summary>
         /// Creates a tensor representing type T.
-        /// If T is a scalar the tensor will be backed with a managed-heap-allocated T.
-        /// If T is a single or multi-dimensional array, that array will be pinned and wrapped in a tensor.
-        /// This method does not support jagged arrays since those require copies.
+        /// The tensor will be backed with a managed-heap-allocated T.
         /// </summary>
         /// <typeparam name="T">.NET type of tensor to create</typeparam>
         /// <param name="data">value of tensor</param>
-        /// <param name="shape">shape of tensor. Only valid when passing in arrays.</param>
-        public static TFTensor Create<T>(T data, TFShape shape = null)
+        public static TFTensor Create<T>(T data)
         {
 <# foreach (TypeConfiguration type in typeConfiguration) { #>
             <#=GenerateIfStatementHeader(type)#>
@@ -31,23 +28,26 @@ namespace Microsoft.ML.Transforms.TensorFlow
                 return new TFTensor((<#=type.TypeName#>)(object)data);
             }
 <# } #>
-            // We could add fast-paths here for single dimensional arrays of each time, I suspect the JIT will do better if we do.
-            // We should investigate the code gen differences and add them if they are more efficient.
-            else if (typeof(T).IsArray)
-            {
-                if (shape == null)
-                    throw new ArgumentNullException("shape");
+            throw new NotSupportedException($"Unsupported type {typeof(T)}");
+        }
 
-                var elementType = typeof(T).GetElementType();
+        /// <summary>
+        /// Creates a tensor representing type T[].
+        /// T[] will be pinned and wrapped in a tensor.
+        /// This method does not support jagged arrays since those require copies.
+        /// </summary>
+        /// <typeparam name="T[]">.NET type of tensor to create</typeparam>
+        /// <param name="data">value of tensor</param>
+        /// <param name="shape">shape of tensor</param>
+        public static TFTensor Create<T>(T[] data, TFShape shape)
+        {
 <# foreach (TypeConfiguration type in typeConfiguration) { #>
-                <#=GenerateIfStatementHeader(type, "elementType")#>
-                {
-                    return new TFTensor(SetupTensor(TFDataType.<#=type.TFDataType#>, shape, (Array)(object)data, 0, ((Array)(object)data).Length, <#=type.Size#>));
-                }
-<# } #>
-                // note that we will get here for jagged arrays, which is intententional since we'd need to copy them.
-                throw new NotSupportedException($"Unsupported element type {elementType}");
+            <#=GenerateIfStatementHeader(type)#>
+            {
+                return new TFTensor(SetupTensor(TFDataType.<#=type.TFDataType#>, shape, (Array)(object)data, 0, ((Array)(object)data).Length, <#=type.Size#>));
             }
+<# } #>
+            // note that we will get here for jagged arrays, which is intententional since we'd need to copy them.
             throw new NotSupportedException($"Unsupported type {typeof(T)}");
         }
     }
