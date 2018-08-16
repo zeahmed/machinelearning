@@ -54,9 +54,6 @@ namespace Microsoft.ML.Transforms
 
             [Argument(ArgumentType.Required, HelpText = "This is the frozen protobuf model file. Please see https://www.tensorflow.org/mobile/prepare_models for more detail(s).", ShortName = "ModelDir", SortOrder = 2)]
             public string ModelFile;
-
-            [Argument(ArgumentType.Required, HelpText = "Batch size.", ShortName = "BatchSize", SortOrder = 3)]
-            public int BatchSize = 1;
         }
 
         private sealed class Bindings : ManyToOneColumnBindingsBase
@@ -231,7 +228,7 @@ namespace Microsoft.ML.Transforms
         public override ISchema Schema => _bindings;
 
         /// <summary>
-        ///  First dimension in each tensor is a batch dimension.
+        ///  Any missing dimension can be a batch dimension.
         ///  Currently setting it to 1.
         /// </summary>
         private readonly int _batchSize;
@@ -254,13 +251,12 @@ namespace Microsoft.ML.Transforms
         {
             Host.CheckValue(args, nameof(args));
             Host.CheckUserArg(Utils.Size(args.Column) > 0, nameof(args.Column));
-            Host.CheckUserArg(args.BatchSize > 0, nameof(args.BatchSize));
             for (int i = 0; i < args.Column.Length; i++)
                 Host.CheckUserArg(Utils.Size(args.Column[i].Source) > 0, nameof(args.Column));
             Host.CheckNonWhiteSpace(args.ModelFile, nameof(args.ModelFile));
             Host.CheckUserArg(File.Exists(args.ModelFile), nameof(args.ModelFile));
 
-            _batchSize = args.BatchSize;
+            _batchSize = 1; //  Currently setting it to 1.
             _session = LoadTFSession(args.ModelFile);
             _bindings = new Bindings(args.Column, Source.Schema, this);
         }
@@ -523,7 +519,7 @@ namespace Microsoft.ML.Transforms
             {
                 var scalar = default(T);
                 _srcgetter(ref scalar);
-                return TFTensor.Create(scalar);
+                return TFTensor.CreateScalar(scalar);
             }
         }
 

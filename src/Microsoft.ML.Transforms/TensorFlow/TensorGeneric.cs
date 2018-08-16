@@ -13,7 +13,7 @@ namespace Microsoft.ML.Transforms.TensorFlow
         /// </summary>
         /// <typeparam name="T">.NET type of tensor to create</typeparam>
         /// <param name="data">value of tensor</param>
-        public static TFTensor Create<T>(T data)
+        public static TFTensor CreateScalar<T>(T data)
         {
             if (typeof(T) == typeof(System.Boolean))
             {
@@ -73,7 +73,6 @@ namespace Microsoft.ML.Transforms.TensorFlow
         /// <summary>
         /// Creates a tensor representing type T[].
         /// T[] will be pinned and wrapped in a tensor.
-        /// This method does not support jagged arrays since those require copies.
         /// </summary>
         /// <typeparam name="T[]">.NET type of tensor to create</typeparam>
         /// <param name="data">value of tensor</param>
