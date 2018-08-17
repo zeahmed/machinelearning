@@ -6,8 +6,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.ML.Runtime;
 using Microsoft.ML.Runtime.CommandLine;
@@ -234,7 +232,7 @@ namespace Microsoft.ML.Transforms
         private readonly int _batchSize;
 
         /// <summary>
-        /// Convenience constructor for public facing API.
+        /// Instantiates <see cref="TensorflowTransform"/>.
         /// </summary>
         /// <param name="env">Host Environment.</param>
         /// <param name="input">Input <see cref="IDataView"/>. This is the output from previous transform or loader.</param>
@@ -244,6 +242,40 @@ namespace Microsoft.ML.Transforms
         public TensorflowTransform(IHostEnvironment env, IDataView input, string modelFile, string name, params string[] source)
             : this(env, new Arguments() { Column = new[] { new Column() { Source = source, Name = name } }, ModelFile = modelFile }, input)
         {
+        }
+
+        /// <summary>
+        /// Instantiates <see cref="TensorflowTransform"/>.
+        /// </summary>
+        /// <param name="env">Host Environment.</param>
+        /// <param name="input">Input <see cref="IDataView"/>. This is the output from previous transform or loader.</param>
+        /// <param name="modelFile">This is the frozen tensorflow model file. https://www.tensorflow.org/mobile/prepare_models </param>
+        /// <param name="outputColumns">Name of the output column(s). Keep it same as in the Tensorflow model.</param>
+        /// <param name="inputColumns">Name of the input column(s). Keep it same as in the Tensorflow model.</param>
+        public TensorflowTransform(IHostEnvironment env, IDataView input, string modelFile, string[] outputColumns, string[] inputColumns)
+            : this(env, CreateArguments(env, modelFile, outputColumns, inputColumns), input)
+        {
+        }
+
+        private static Arguments CreateArguments(IHostEnvironment env, string modelFile, string[] outputColumns, string[] inputColumns)
+        {
+            env.CheckValue(outputColumns, nameof(outputColumns));
+            env.CheckValue(inputColumns, nameof(inputColumns));
+            env.CheckUserArg(Utils.Size(outputColumns) > 0, nameof(outputColumns));
+            env.CheckUserArg(Utils.Size(inputColumns) > 0, nameof(inputColumns));
+            env.CheckNonWhiteSpace(modelFile, nameof(modelFile));
+            env.CheckUserArg(File.Exists(modelFile), nameof(modelFile));
+
+            var args = new Arguments();
+            args.ModelFile = modelFile;
+            args.Column = new Column[outputColumns.Length];
+            for (int i = 0; i < args.Column.Length; i++)
+            {
+                args.Column[i] = new Column();
+                args.Column[i].Name = outputColumns[i];
+                args.Column[i].Source = inputColumns;
+            }
+            return args;
         }
 
         public TensorflowTransform(IHostEnvironment env, Arguments args, IDataView input)
@@ -385,7 +417,19 @@ namespace Microsoft.ML.Transforms
             return srcTensorGetters;
         }
 
-        private Delegate MakeGetter(IRow input, int iinfo)
+        private Delegate[] GetGetters(IRow input, Func<int, bool> isActive)
+        {
+            var getters = new Delegate[_bindings.InfoCount];
+            var outputs = new Dictionary<string, TFTensor>();
+            for (int iinfo = 0; iinfo < _bindings.InfoCount; iinfo++)
+            {
+                if (!isActive(iinfo))
+                    continue;
+                getters[iinfo] = MakeGetter(input, outputs, iinfo);
+            }
+            return getters;
+        }
+        private Delegate MakeGetter(IRow input, Dictionary<string, TFTensor> outputs, int iinfo)
         {
             var info = _bindings.Infos[iinfo];
             var outInfo = _bindings.OutputCols[iinfo];
@@ -393,13 +437,13 @@ namespace Microsoft.ML.Transforms
             var type = TFTensor.TypeFromTensorType(tfType);
             if (type != null)
             {
-                return Utils.MarshalInvoke(MakeGetter<int>, outInfo.ItemType.RawType, input, iinfo, outInfo);
+                return Utils.MarshalInvoke(MakeGetter<int>, outInfo.ItemType.RawType, input, iinfo, outInfo, outputs);
             }
 
             throw Host.ExceptNotSupp("Tensorflow type not supported");
         }
 
-        private Delegate MakeGetter<T>(IRow input, int iinfo, ColumnType columnType)
+        private Delegate MakeGetter<T>(IRow input, int iinfo, ColumnType columnType, Dictionary<string, TFTensor> outputs)
         {
             Host.AssertValue(input);
             Host.Assert(typeof(T) == columnType.ItemType.RawType);
@@ -407,29 +451,45 @@ namespace Microsoft.ML.Transforms
             var info = _bindings.Infos[iinfo];
             var tfInfo = _bindings.TfColInfo[iinfo];
             var srcTensorGetters = GetTensorValueGetters(input, iinfo);
+            long cachedPosition = -1;
 
             ValueGetter<VBuffer<T>> valuegetter = (ref VBuffer<T> dst) =>
                 {
-                    var runner = _session.GetRunner();
-                    for (int i = 0; i < info.SrcIndices.Length; i++)
-                    {
-                        var inputName = tfInfo.InputColNames[i];
-                        var type = info.SrcTypes[i];
-                        runner.AddInput(inputName, srcTensorGetters[i].GetTensor());
-                    }
-
-                    var tensors = runner.Fetch(_bindings.OutputColNames[iinfo]).Run();
-
-                    Contracts.Assert(tensors.Length > 0);
+                    UpdateCacheIfNeeded(input.Position, ref cachedPosition, outputs, iinfo, srcTensorGetters);
 
                     var values = dst.Values;
                     if (Utils.Size(values) != _bindings.OutputCols[iinfo].VectorSize)
                         values = new T[_bindings.OutputCols[iinfo].VectorSize];
 
-                    TensorflowUtils.FetchData<T>(tensors[0].Data, values);
+                    TensorflowUtils.FetchData<T>(outputs[_bindings.OutputColNames[iinfo]].Data, values);
                     dst = new VBuffer<T>(values.Length, values);
                 };
+
             return valuegetter;
+        }
+
+        private void UpdateCacheIfNeeded(long position, ref long cachedPosition, Dictionary<string, TFTensor> outputs, int colIndex, ITensorValueGetter[] srcTensorGetters)
+        {
+            if (cachedPosition != position)
+            {
+                var runner = _session.GetRunner();
+                for (int i = 0; i < _bindings.Infos[colIndex].SrcIndices.Length; i++)
+                {
+                    var inputName = _bindings.TfColInfo[colIndex].InputColNames[i];
+                    var type = _bindings.Infos[colIndex].SrcTypes[i];
+                    runner.AddInput(inputName, srcTensorGetters[i].GetTensor());
+                }
+
+                var tensors = runner.Fetch(_bindings.OutputColNames).Run();
+                Contracts.Assert(tensors.Length > 0);
+
+                for (int j=0;j<tensors.Length; j++)
+                {
+                    outputs[_bindings.OutputColNames[j]] = tensors[j];
+                }
+
+                cachedPosition = position;
+            }
         }
 
         protected override Func<int, bool> GetDependenciesCore(Func<int, bool> predicate)
@@ -446,16 +506,15 @@ namespace Microsoft.ML.Transforms
                     return active(col);
                 };
 
-            var getters = new Delegate[_bindings.InfoCount];
+            var activeCols = new bool[_bindings.InfoCount];
             disp = null;
             using (var ch = Host.Start("CreateGetters"))
             {
                 for (int iinfo = 0; iinfo < _bindings.InfoCount; iinfo++)
                 {
-                    if (!activeInfos(iinfo))
-                        continue;
-                    getters[iinfo] = MakeGetter(input, iinfo);
+                    activeCols[iinfo] = activeInfos(iinfo);
                 }
+                var getters = GetGetters(input, activeInfos);
                 ch.Done();
                 return getters;
             }
@@ -559,12 +618,13 @@ namespace Microsoft.ML.Transforms
                 _bindings = parent._bindings;
                 _active = active;
 
-                _getters = new Delegate[_bindings.Infos.Length];
-                for (int i = 0; i < _bindings.Infos.Length; i++)
-                {
-                    if (IsIndexActive(i))
-                        _getters[i] = parent.MakeGetter(Input, i);
-                }
+                Func<int, bool> activeInfos =
+                        iinfo =>
+                        {
+                            return IsIndexActive(iinfo);
+                        };
+
+                _getters = parent.GetGetters(Input, activeInfos);
             }
 
             public ISchema Schema { get { return _bindings; } }
