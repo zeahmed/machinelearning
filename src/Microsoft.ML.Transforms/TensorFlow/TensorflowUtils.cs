@@ -46,17 +46,16 @@ namespace Microsoft.ML.Transforms.TensorFlow
             }
         }
 
-        internal static bool IsTypeSupportedInTf(ColumnType type)
+        internal static bool IsTypeSupportedInTf(ColumnType columnType)
         {
             try
             {
-                if (type.IsVector)
+                Type type = columnType.RawType;
+                if (columnType.IsVector)
                 {
-                    TFTensor.TensorTypeFromType(type.ItemType.RawType);
-                    return true;
+                    type = columnType.ItemType.RawType;
                 }
-
-                TFTensor.TensorTypeFromType(type.RawType);
+                TFTensor.TensorTypeFromType(type);
                 return true;
             }
            catch (ArgumentOutOfRangeException)
